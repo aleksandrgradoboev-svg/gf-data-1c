@@ -1,0 +1,176 @@
+package tools
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
+	"sync"
+
+	"dat-tools-1c/onec"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+)
+
+// headingProbe — заголовок отказа инструмента dat_probe.
+const headingProbe = "Проба каналов не выполнена"
+
+// ProbeTool — проба живости канала к базам.
+//
+// Зачем отдельный инструмент, когда есть dat_base_info. Тот отвечает ПРО ОДНУ
+// базу и отвечает подробно; проба нужна про ВСЕ и коротко, потому что вопрос у
+// неё другой: с какими базами вообще можно сегодня работать. У нас веб-сервер
+// запущен процессом, а не службой, и после перезагрузки машины исчезает молча —
+// а отсутствие канала выглядит как «в базе нет данных», если не спросить прямо.
+func ProbeTool() *mcp.Tool {
+	return &mcp.Tool{
+		Name:        "dat_probe",
+		Title:       "Проба каналов к базам",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+		Description: "Проверить, отвечают ли базы 1С из реестра: по каждой базе отдельная строка — жив канал, " +
+			"не установлено расширение (404), не поднят веб-сервер (соединение отвергнуто) или отказ прав (401). " +
+			"Вызывай перед работой с данными и всякий раз, когда база отвечает пусто: пустой ответ мёртвого канала " +
+			"выглядит точно так же, как честное отсутствие данных. Без параметра base проверяет все базы разом.",
+		InputSchema: json.RawMessage(`{
+			"type": "object",
+			"properties": {
+				"base": {
+					"type": "string",
+					"description": "Проверить только эту базу. Опущено — проверяются все базы реестра."
+				}
+			}
+		}`),
+	}
+}
+
+// probeInput — аргументы dat_probe.
+type probeInput struct {
+	Base string `json:"base,omitempty"`
+}
+
+// probeResult — итог пробы одной базы.
+type probeResult struct {
+	name    string
+	url     string
+	version string
+	err     error
+}
+
+// NewProbeHandler возвращает обработчик dat_probe.
+//
+// Хендлер берёт реестр целиком, а не клиента: он про набор баз, поэтому WithBase
+// к нему неприменим — выбор одной базы означал бы обратное тому, зачем он есть.
+func NewProbeHandler(sel BaseSelector) mcp.ToolHandler {
+	return WithToolErrors(headingProbe, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		var in probeInput
+		if len(req.Params.Arguments) > 0 {
+			if err := json.Unmarshal(req.Params.Arguments, &in); err != nil {
+				return nil, InvalidParams(argumentDecodeError(err))
+			}
+		}
+
+		targets := sel.List()
+		if name := strings.TrimSpace(in.Base); name != "" {
+			// Отбор по имени идёт через Client: он же и отказывает с перечнем
+			// известных имён, если базы нет. Второй способ сказать то же самое
+			// разошёлся бы с первым при первой правке.
+			if _, err := sel.Client(name); err != nil {
+				return nil, InvalidParams(err)
+			}
+			filtered := make([]onec.Base, 0, 1)
+			for _, b := range targets {
+				if b.Name == name {
+					filtered = append(filtered, b)
+				}
+			}
+			targets = filtered
+		}
+		if len(targets) == 0 {
+			return textResult("Реестр пуст: проверять нечего. Зарегистрируйте базу инструментом dat_bases (action=add)."), nil
+		}
+
+		// Базы опрашиваются параллельно: последовательный обход десяти баз, из
+		// которых половина не отвечает, упирается в таймаут каждой по очереди.
+		results := make([]probeResult, len(targets))
+		var wg sync.WaitGroup
+		for i, b := range targets {
+			wg.Add(1)
+			go func(i int, b onec.Base) {
+				defer wg.Done()
+				r := probeResult{name: b.Name, url: b.URL}
+				client, err := sel.Client(b.Name)
+				if err != nil {
+					r.err = err
+					results[i] = r
+					return
+				}
+				var ver struct {
+					Version string `json:"version"`
+				}
+				if err := client.Get(ctx, "/version", &ver); err != nil {
+					r.err = err
+				}
+				r.version = ver.Version
+				results[i] = r
+			}(i, b)
+		}
+		wg.Wait()
+
+		return textResult(formatProbe(results)), nil
+	})
+}
+
+// formatProbe печатает итог пробы.
+//
+// Диагноз называется словами, а не кодом: «404» операторам этой системы говорит
+// меньше, чем «расширение не установлено в базе», а лечится это разными
+// действиями — установить расширение, поднять веб-сервер, дать права.
+func formatProbe(rs []probeResult) string {
+	var b strings.Builder
+	b.WriteString("# Проба каналов к базам 1С\n\n")
+	b.WriteString("| База | Состояние | Версия сервиса | Адрес |\n|---|---|---|---|\n")
+
+	alive := 0
+	for _, r := range rs {
+		state := ""
+		switch {
+		case r.err == nil && r.version != "":
+			state = "✅ отвечает"
+			alive++
+		case r.err == nil:
+			state = "⚠️ ответ без версии"
+			alive++
+		default:
+			state = "❌ " + probeDiagnosis(r.err)
+		}
+		fmt.Fprintf(&b, "| %s | %s | %s | %s |\n", r.name, state, r.version, r.url)
+	}
+	fmt.Fprintf(&b, "\nОтвечают %d из %d.\n", alive, len(rs))
+	if alive < len(rs) {
+		b.WriteString("\nПо базе, которая не отвечает, работа с данными не начинается: " +
+			"пустой ответ мёртвого канала неотличим от отсутствия данных в базе.\n")
+	}
+	return b.String()
+}
+
+// probeDiagnosis переводит отказ в причину, которую можно устранить.
+func probeDiagnosis(err error) string {
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "404"):
+		return "расширение MCP не установлено в базе (404)"
+	case strings.Contains(msg, "401"):
+		return "отказано в правах (401): пользователь или пароль базы"
+	case strings.Contains(msg, "403"):
+		return "доступ запрещён (403): роль пользователя не даёт сервис"
+	case strings.Contains(msg, "refused") || strings.Contains(msg, "dial tcp"):
+		return "веб-сервер не отвечает: не запущен или занят другой порт"
+	case strings.Contains(msg, "timeout") || strings.Contains(msg, "deadline"):
+		return "таймаут: сервер принял соединение, но не ответил"
+	default:
+		short := msg
+		if len(short) > 120 {
+			short = short[:120] + "…"
+		}
+		return short
+	}
+}

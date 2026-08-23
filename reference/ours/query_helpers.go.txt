@@ -1,0 +1,307 @@
+package tools
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
+
+	"dat-tools-1c/onec"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+)
+
+// Инструменты, которые СТРОЯТ запрос вместо того, чтобы принимать его текстом.
+//
+// Смысл не в удобстве. Текст запроса 1С — самое частое место ошибки: имя
+// виртуальной таблицы, порядок параметров периода, обязательные скобки,
+// «Регистр.X.Остатки(&П)» против «Регистр.X.ОстаткиИОбороты(&Н, &К)».
+// Ошибка возвращается как синтаксическая, её правят наугад и присылают снова.
+// Здесь текст собирается кодом из параметров, поэтому целый класс ошибок
+// исчезает, а не диагностируется.
+//
+// Гарантия только чтения не ослабляется: собирается ВЫБРАТЬ и ничего кроме.
+
+const (
+	headingCount    = "Подсчёт записей не выполнен"
+	headingRegister = "Итоги регистра не получены"
+)
+
+// CountTool — счёт записей таблицы с необязательным отбором.
+func CountTool() *mcp.Tool {
+	return &mcp.Tool{
+		Name:        "dat_count",
+		Title:       "Сколько записей в таблице",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+		Description: "Посчитать записи таблицы 1С — есть ли вообще данные, сколько документов за период, " +
+			"сколько элементов справочника. Отбор задаётся условием where на языке запросов с параметрами &Имя. " +
+			"Дешевле и надёжнее, чем писать полный запрос: текст собирается сам. " +
+			"Имя таблицы — как в конфигурации: Справочник.Номенклатура, Документ.РеализацияТоваровУслуг, " +
+			"РегистрНакопления.ТоварыНаСкладах, РегистрБухгалтерии.Хозрасчетный.",
+		InputSchema: json.RawMessage(`{
+			"type": "object",
+			"properties": {
+				"table": {
+					"type": "string",
+					"description": "Таблица 1С: Справочник.X, Документ.X, РегистрНакопления.X, РегистрСведений.X, РегистрБухгалтерии.X."
+				},
+				"where": {
+					"type": "string",
+					"description": "Условие отбора без слова ГДЕ, например: Дата МЕЖДУ &Н И &К И НЕ ПометкаУдаления. Необязательно."
+				},
+				"parameters": {
+					"type": "object",
+					"description": "Параметры условия: ключ без амперсанда. Пример: {\"Н\": \"2026-01-01\", \"К\": \"2026-12-31\"}."
+				}
+			},
+			"required": ["table"]
+		}`),
+	}
+}
+
+type countInput struct {
+	Table      string         `json:"table"`
+	Where      string         `json:"where,omitempty"`
+	Parameters map[string]any `json:"parameters,omitempty"`
+}
+
+// NewCountHandler возвращает обработчик dat_count.
+func NewCountHandler(client *onec.Client) mcp.ToolHandler {
+	return WithToolErrors(headingCount, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		var in countInput
+		if err := json.Unmarshal(req.Params.Arguments, &in); err != nil {
+			return nil, InvalidParams(argumentDecodeError(err))
+		}
+		table := strings.TrimSpace(in.Table)
+		if table == "" {
+			return nil, InvalidParams(fmt.Errorf("не указана таблица (параметр table)"))
+		}
+		if err := guardIdentifier("table", table); err != nil {
+			return nil, InvalidParams(err)
+		}
+		if err := guardReadOnlyFragment("where", in.Where); err != nil {
+			return nil, InvalidParams(err)
+		}
+
+		query := "ВЫБРАТЬ КОЛИЧЕСТВО(*) КАК Всего ИЗ " + table
+		if w := strings.TrimSpace(in.Where); w != "" {
+			query += " ГДЕ " + w
+		}
+
+		var result onec.QueryResult
+		body := onec.QueryRequest{Query: query, Limit: 1, Parameters: in.Parameters}
+		if err := client.Post(ctx, "/query", body, &result); err != nil {
+			return nil, fmt.Errorf("executing count query in 1C: %w", err)
+		}
+
+		var b strings.Builder
+		fmt.Fprintf(&b, "## Записей в %s\n\n", table)
+		if len(result.Rows) > 0 && len(result.Rows[0]) > 0 {
+			fmt.Fprintf(&b, "**%v**\n\n", result.Rows[0][0])
+		} else {
+			b.WriteString("Ответ пуст — это отказ, а не ноль записей: 1С не вернула строку итога.\n\n")
+		}
+		fmt.Fprintf(&b, "Запрос: `%s`\n", query)
+		if len(in.Parameters) > 0 {
+			params, _ := json.Marshal(in.Parameters)
+			fmt.Fprintf(&b, "Параметры: `%s`\n", string(params))
+		}
+		return textResult(b.String()), nil
+	})
+}
+
+// RegisterTool — итоги регистра через его виртуальные таблицы.
+func RegisterTool() *mcp.Tool {
+	return &mcp.Tool{
+		Name:        "dat_register",
+		Title:       "Остатки и обороты регистра",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+		Description: "Получить итоги регистра накопления через его виртуальные таблицы: остатки на дату (kind=Остатки), " +
+			"обороты за период (kind=Обороты) или и то и другое (kind=ОстаткиИОбороты). Запрос собирается сам — " +
+			"имя виртуальной таблицы, порядок параметров периода и группировка не сочиняются заново. " +
+			"Разрезы (измерения) перечисляются в dimensions, показатели — в resources; пустые resources означают все ресурсы регистра, " +
+			"их имена возьми из dat_object.",
+		InputSchema: json.RawMessage(`{
+			"type": "object",
+			"properties": {
+				"register": {
+					"type": "string",
+					"description": "Имя регистра накопления без префикса, например ТоварыНаСкладах или ВыручкаИСебестоимостьПродаж."
+				},
+				"kind": {
+					"type": "string",
+					"enum": ["Остатки", "Обороты", "ОстаткиИОбороты"],
+					"description": "Какая виртуальная таблица нужна. По умолчанию Остатки."
+				},
+				"period": {"type": "string", "description": "Дата остатков для kind=Остатки, например 2026-06-30. Пусто — остатки на текущий момент."},
+				"start": {"type": "string", "description": "Начало периода для Обороты и ОстаткиИОбороты, например 2026-01-01."},
+				"end": {"type": "string", "description": "Конец периода для Обороты и ОстаткиИОбороты, например 2026-12-31."},
+				"dimensions": {
+					"type": "array", "items": {"type": "string"},
+					"description": "Измерения-разрезы, по которым группировать: [\"Склад\", \"Номенклатура\"]. Пусто — итог одной строкой."
+				},
+				"resources": {
+					"type": "array", "items": {"type": "string"},
+					"description": "Ресурсы регистра: [\"КоличествоОстаток\"] для остатков, [\"КоличествоОборот\"] для оборотов. Пусто — сервер попросит их назвать."
+				},
+				"where": {"type": "string", "description": "Дополнительный отбор по полям виртуальной таблицы, без слова ГДЕ. Необязательно."},
+				"limit": {"type": "integer", "description": "Сколько строк вернуть (по умолчанию 100, максимум 1000)."},
+				"parameters": {"type": "object", "description": "Параметры для where: ключ без амперсанда."}
+			},
+			"required": ["register"]
+		}`),
+	}
+}
+
+type registerInput struct {
+	Register   string         `json:"register"`
+	Kind       string         `json:"kind,omitempty"`
+	Period     string         `json:"period,omitempty"`
+	Start      string         `json:"start,omitempty"`
+	End        string         `json:"end,omitempty"`
+	Dimensions []string       `json:"dimensions,omitempty"`
+	Resources  []string       `json:"resources,omitempty"`
+	Where      string         `json:"where,omitempty"`
+	Limit      int            `json:"limit,omitempty"`
+	Parameters map[string]any `json:"parameters,omitempty"`
+}
+
+// NewRegisterHandler возвращает обработчик dat_register.
+func NewRegisterHandler(client *onec.Client) mcp.ToolHandler {
+	return WithToolErrors(headingRegister, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		var in registerInput
+		if err := json.Unmarshal(req.Params.Arguments, &in); err != nil {
+			return nil, InvalidParams(argumentDecodeError(err))
+		}
+		reg := strings.TrimSpace(in.Register)
+		if reg == "" {
+			return nil, InvalidParams(fmt.Errorf("не указан регистр (параметр register)"))
+		}
+		reg = strings.TrimPrefix(reg, "РегистрНакопления.")
+		if err := guardIdentifier("register", reg); err != nil {
+			return nil, InvalidParams(err)
+		}
+
+		kind := strings.TrimSpace(in.Kind)
+		if kind == "" {
+			kind = "Остатки"
+		}
+
+		// Параметры периода передаются ИМЕНОВАННЫМИ параметрами запроса, а не
+		// подстановкой в текст: дата, вписанная в текст запроса строкой, каждый
+		// раз упирается в формат литерала ДАТАВРЕМЯ, а параметр 1С разбирает сама.
+		params := map[string]any{}
+		for k, v := range in.Parameters {
+			params[k] = v
+		}
+
+		var virtual string
+		switch kind {
+		case "Остатки":
+			if in.Period != "" {
+				params["П"] = in.Period
+				virtual = fmt.Sprintf("РегистрНакопления.%s.Остатки(&П)", reg)
+			} else {
+				virtual = fmt.Sprintf("РегистрНакопления.%s.Остатки", reg)
+			}
+		case "Обороты", "ОстаткиИОбороты":
+			if in.Start == "" || in.End == "" {
+				return nil, InvalidParams(fmt.Errorf("для kind=%s нужны start и end (границы периода)", kind))
+			}
+			params["Н"] = in.Start
+			params["К"] = in.End
+			virtual = fmt.Sprintf("РегистрНакопления.%s.%s(&Н, &К)", reg, kind)
+		default:
+			return nil, InvalidParams(fmt.Errorf("неизвестный kind %q; допустимы: Остатки, Обороты, ОстаткиИОбороты", in.Kind))
+		}
+
+		if len(in.Resources) == 0 {
+			return nil, InvalidParams(fmt.Errorf(
+				"не названы ресурсы (resources): у виртуальной таблицы %s они называются иначе, чем у самого регистра "+
+					"(КоличествоОстаток, СуммаОборот и т. п.) — возьми имена из dat_object по регистру %s", kind, reg))
+		}
+
+		fields := make([]string, 0, len(in.Dimensions)+len(in.Resources))
+		for _, d := range in.Dimensions {
+			d = strings.TrimSpace(d)
+			if err := guardIdentifier("dimensions", d); err != nil {
+				return nil, InvalidParams(err)
+			}
+			fields = append(fields, d)
+		}
+		for _, r := range in.Resources {
+			r = strings.TrimSpace(r)
+			if err := guardIdentifier("resources", r); err != nil {
+				return nil, InvalidParams(err)
+			}
+			fields = append(fields, r)
+		}
+		if err := guardReadOnlyFragment("where", in.Where); err != nil {
+			return nil, InvalidParams(err)
+		}
+
+		query := "ВЫБРАТЬ " + strings.Join(fields, ", ") + " ИЗ " + virtual + " КАК Т"
+		if w := strings.TrimSpace(in.Where); w != "" {
+			query += " ГДЕ " + w
+		}
+
+		limit := clampLimit(in.Limit, defaultQueryLimit, maxQueryLimit)
+		var result onec.QueryResult
+		if err := client.Post(ctx, "/query", onec.QueryRequest{Query: query, Limit: limit, Parameters: params}, &result); err != nil {
+			return nil, fmt.Errorf("executing register query in 1C: %w", err)
+		}
+
+		out := formatQueryResult(&result)
+		out += fmt.Sprintf("\nЗапрос: `%s`\n", query)
+		if len(params) > 0 {
+			p, _ := json.Marshal(params)
+			out += fmt.Sprintf("Параметры: `%s`\n", string(p))
+		}
+		if result.Total == 0 {
+			out += "\nПусто — это не обязательно «нет данных»: проверь период, разрезы и что движения по регистру вообще есть (dat_count по регистру).\n"
+		}
+		return textResult(out), nil
+	})
+}
+
+// guardIdentifier не пускает в собираемый текст запроса ничего, кроме имени.
+//
+// Инструменты этого файла склеивают текст запроса из аргументов, а склейка —
+// это то самое место, где чужая строка становится кодом. Гарантия «только
+// чтение» здесь держится не тем, что 1С откажет, а тем, что до 1С не доедет
+// ничего, кроме идентификатора: ни точки с запятой, ни скобки, ни кавычки.
+func guardIdentifier(field, v string) error {
+	if v == "" {
+		return fmt.Errorf("пустое имя в %s", field)
+	}
+	for _, r := range v {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z',
+			r >= 'а' && r <= 'я', r >= 'А' && r <= 'Я', r == 'ё', r == 'Ё',
+			r >= '0' && r <= '9', r == '_', r == '.':
+		default:
+			return fmt.Errorf("недопустимый символ %q в %s (%q): здесь ожидается имя объекта или поля, а не выражение", r, field, v)
+		}
+	}
+	return nil
+}
+
+// guardReadOnlyFragment отклоняет отбор, в котором прячется не отбор.
+//
+// Условие приходит текстом (иначе им нельзя пользоваться), поэтому проверяется
+// на изменяющие конструкции языка. Проверка грубая и намеренно параноидальная:
+// пропущенное здесь исполняется на стороне 1С.
+func guardReadOnlyFragment(field, v string) error {
+	if strings.TrimSpace(v) == "" {
+		return nil
+	}
+	if strings.Contains(v, ";") {
+		return fmt.Errorf("в %s есть точка с запятой — второй запрос сюда передать нельзя", field)
+	}
+	upper := strings.ToUpper(v)
+	for _, bad := range []string{"УНИЧТОЖИТЬ", "DROP", "DELETE", "УДАЛИТЬ", "INSERT", "UPDATE", "ВЫПОЛНИТЬ", "EXEC"} {
+		if strings.Contains(upper, bad) {
+			return fmt.Errorf("в %s встречается %s: этот инструмент только читает данные", field, bad)
+		}
+	}
+	return nil
+}

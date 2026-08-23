@@ -1,0 +1,303 @@
+package onec
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+)
+
+// Registry — именованный набор баз 1С, к которым ходит один процесс сервера.
+//
+// Зачем он есть. Адрес базы был зашит в процесс флагом --base: одна база на
+// запуск, вторая база — второй процесс и вторая регистрация MCP у клиента.
+// Описания инструментов при этом дублируются в контексте модели на каждую
+// регистрацию, то есть цена второй базы платится не разово при настройке, а
+// в каждом сообщении (замерено: около 3,3 тыс. токенов на регистрацию).
+// Реестр переносит выбор базы из аргументов процесса в аргумент вызова: базы
+// регистрируются один раз, инструмент называет нужную параметром base.
+//
+// Сам HTTP-сервис 1С мультибазным был всегда: адрес публикации и есть выбор
+// базы (/ut11/hs/mcp-1c против /bu3/hs/mcp-1c). Единственным местом, где база
+// была одна, оставалась эта прослойка.
+type Registry struct {
+	mu    sync.RWMutex
+	items map[string]*Base
+	order []string
+	def   string
+
+	// path — файл, в котором реестр переживает перезапуск процесса. Пустой
+	// путь означает реестр только в памяти (режим одиночной --base): такой
+	// реестр сохранять некуда и не нужно.
+	path string
+
+	// opts — опции, с которыми создаётся клиент каждой базы. Хранятся, потому
+	// что базы добавляются и во время работы, а лимит ответа и таймаут заданы
+	// один раз на процесс.
+	opts []Option
+}
+
+// Base — одна зарегистрированная база.
+//
+// Password сериализуется в файл реестра как есть. Файл поэтому пишется правами
+// 0600: пароль тестовой базы 1С редко бывает тайной, но и класть его в файл,
+// читаемый всей машиной, незачем.
+type Base struct {
+	Name     string `json:"name"`
+	Title    string `json:"title,omitempty"`
+	URL      string `json:"url"`
+	User     string `json:"user,omitempty"`
+	Password string `json:"password,omitempty"`
+
+	// AddedAt заполняется при регистрации во время работы. У баз, пришедших из
+	// файла, остаётся тем, что записано в файле.
+	AddedAt string `json:"added_at,omitempty"`
+
+	client *Client
+}
+
+// registryFile — формат файла реестра. Отдельный тип, а не Registry с тегами:
+// у Registry есть мьютекс и клиенты, которым в JSON делать нечего.
+type registryFile struct {
+	Default string  `json:"default,omitempty"`
+	Bases   []*Base `json:"bases"`
+}
+
+// NewRegistry создаёт пустой реестр без файла — базы добавляются вызовами Add.
+func NewRegistry(opts ...Option) *Registry {
+	return &Registry{items: map[string]*Base{}, opts: opts}
+}
+
+// LoadRegistry читает реестр из файла. Отсутствующий файл — не ошибка: это
+// первый запуск, реестр начинается пустым и появится на диске при первой
+// регистрации базы. Ошибкой считается только файл, который есть и не читается
+// или не разбирается: молча начать с пустого реестра означало бы сказать
+// «баз не зарегистрировано» там, где их зарегистрировали, а файл побился.
+func LoadRegistry(path string, opts ...Option) (*Registry, error) {
+	r := NewRegistry(opts...)
+	r.path = path
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return r, nil
+		}
+		return nil, fmt.Errorf("reading base registry %s: %w", path, err)
+	}
+
+	var f registryFile
+	if err := json.Unmarshal(data, &f); err != nil {
+		return nil, fmt.Errorf("parsing base registry %s: %w", path, err)
+	}
+	for _, b := range f.Bases {
+		if b == nil {
+			continue
+		}
+		if err := r.add(b); err != nil {
+			return nil, fmt.Errorf("base registry %s: %w", path, err)
+		}
+	}
+	if f.Default != "" {
+		if _, ok := r.items[f.Default]; ok {
+			r.def = f.Default
+		}
+	}
+	return r, nil
+}
+
+// Path возвращает файл реестра ("" — реестр живёт только в памяти).
+func (r *Registry) Path() string { return r.path }
+
+// add регистрирует базу без блокировки и без записи на диск.
+func (r *Registry) add(b *Base) error {
+	name := strings.TrimSpace(b.Name)
+	if name == "" {
+		return fmt.Errorf("base name is required")
+	}
+	if strings.TrimSpace(b.URL) == "" {
+		return fmt.Errorf("base %q: url is required", name)
+	}
+	if err := CheckURLCredentialResidue(b.URL); err != nil {
+		return fmt.Errorf("base %q: %w", name, err)
+	}
+	b.Name = name
+	b.client = NewClient(b.URL, b.User, b.Password, r.opts...)
+
+	if _, exists := r.items[name]; !exists {
+		r.order = append(r.order, name)
+	}
+	r.items[name] = b
+	if r.def == "" {
+		r.def = name
+	}
+	return nil
+}
+
+// Add регистрирует базу и сохраняет реестр. Повторная регистрация имени
+// заменяет запись — это способ поправить адрес или пароль, не выдумывая
+// отдельной команды правки.
+func (r *Registry) Add(b *Base) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if b.AddedAt == "" {
+		b.AddedAt = time.Now().Format(time.RFC3339)
+	}
+	if err := r.add(b); err != nil {
+		return err
+	}
+	return r.save()
+}
+
+// Remove убирает базу из реестра. Удаление базы по умолчанию передаёт это
+// звание первой оставшейся: пустой default при непустом реестре означал бы
+// «базы есть, но вызов без параметра base не работает» — состояние, которое
+// нечем объяснить вызывающему.
+func (r *Registry) Remove(name string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.items[name]; !ok {
+		return fmt.Errorf("base %q is not registered", name)
+	}
+	delete(r.items, name)
+	for i, n := range r.order {
+		if n == name {
+			r.order = append(r.order[:i], r.order[i+1:]...)
+			break
+		}
+	}
+	if r.def == name {
+		r.def = ""
+		if len(r.order) > 0 {
+			r.def = r.order[0]
+		}
+	}
+	return r.save()
+}
+
+// SetDefault назначает базу по умолчанию — ту, к которой уходит вызов без
+// параметра base.
+func (r *Registry) SetDefault(name string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := r.items[name]; !ok {
+		return fmt.Errorf("base %q is not registered", name)
+	}
+	r.def = name
+	return r.save()
+}
+
+// Default возвращает имя базы по умолчанию ("" — реестр пуст).
+func (r *Registry) Default() string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.def
+}
+
+// Names возвращает имена баз в порядке регистрации.
+func (r *Registry) Names() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]string, len(r.order))
+	copy(out, r.order)
+	return out
+}
+
+// List возвращает копии записей — без клиентов и без паролей: список читает
+// модель, и пароль в нём уехал бы в контекст, где ему делать нечего.
+func (r *Registry) List() []Base {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]Base, 0, len(r.order))
+	for _, n := range r.order {
+		b := r.items[n]
+		out = append(out, Base{Name: b.Name, Title: b.Title, URL: b.URL, User: b.User, AddedAt: b.AddedAt})
+	}
+	return out
+}
+
+// Len возвращает число зарегистрированных баз.
+func (r *Registry) Len() int {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return len(r.order)
+}
+
+// Client отдаёт клиента базы. Пустое имя означает базу по умолчанию.
+//
+// Отказ здесь называет то, чего не хватает вызывающему: перечень
+// зарегистрированных имён. Ответ «база не найдена» без списка заставляет
+// вызывающего гадать имя во второй раз ровно так же, как в первый.
+func (r *Registry) Client(name string) (*Client, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	if strings.TrimSpace(name) == "" {
+		if r.def == "" {
+			return nil, fmt.Errorf("ни одной базы 1С не зарегистрировано: добавьте её инструментом bases (action=add)")
+		}
+		return r.items[r.def].client, nil
+	}
+	b, ok := r.items[name]
+	if !ok {
+		known := make([]string, len(r.order))
+		copy(known, r.order)
+		sort.Strings(known)
+		if len(known) == 0 {
+			return nil, fmt.Errorf("база %q не зарегистрирована; реестр пуст — добавьте базу инструментом bases (action=add)", name)
+		}
+		return nil, fmt.Errorf("база %q не зарегистрирована; известны: %s", name, strings.Join(known, ", "))
+	}
+	return b.client, nil
+}
+
+// save пишет реестр на диск. Вызывается под уже взятым мьютексом.
+//
+// Запись идёт через временный файл рядом с целевым и переименование: обрыв на
+// середине записи оставил бы усечённый JSON, а усечённый реестр не читается
+// вовсе — то есть одна неудачная запись стоила бы всех регистраций сразу.
+func (r *Registry) save() error {
+	if r.path == "" {
+		return nil
+	}
+	f := registryFile{Default: r.def}
+	for _, n := range r.order {
+		f.Bases = append(f.Bases, r.items[n])
+	}
+	data, err := json.MarshalIndent(f, "", "  ")
+	if err != nil {
+		return fmt.Errorf("serialising base registry: %w", err)
+	}
+	data = append(data, '\n')
+
+	dir := filepath.Dir(r.path)
+	if dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return fmt.Errorf("creating registry directory %s: %w", dir, err)
+		}
+	}
+	tmp, err := os.CreateTemp(dir, ".bases-*.tmp")
+	if err != nil {
+		return fmt.Errorf("writing base registry: %w", err)
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return fmt.Errorf("writing base registry: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("writing base registry: %w", err)
+	}
+	if err := os.Chmod(tmpName, 0o600); err != nil {
+		return fmt.Errorf("writing base registry: %w", err)
+	}
+	if err := os.Rename(tmpName, r.path); err != nil {
+		return fmt.Errorf("replacing base registry %s: %w", r.path, err)
+	}
+	return nil
+}

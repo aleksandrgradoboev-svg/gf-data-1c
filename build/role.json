@@ -1,0 +1,10 @@
+{
+  "name": "GT_ОсновнаяРоль",
+  "synonym": "Доступ к данным (чтение)",
+  "comment": "Роль расширения gt-data-1c. Даёт доступ к HTTP-сервису чтения данных и к журналу регистрации. Права на сами данные берутся из ролей пользователя базы — расширение их не расширяет и не подменяет.",
+  "setForNewObjects": false,
+  "setForAttributesByDefault": true,
+  "objects": [
+    "HTTPService.GT_Data: Use"
+  ]
+}

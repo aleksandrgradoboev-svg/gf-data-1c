@@ -1,0 +1,86 @@
+{
+  "type": "HTTPService",
+  "name": "GT_Data",
+  "rootURL": "gt-data",
+  "synonym": "Доступ к данным (Гринтех)",
+  "reuseSessions": "DontUse",
+  "urlTemplates": {
+    "Version": {
+      "template": "/version",
+      "synonym": "Версия расширения",
+      "methods": {
+        "Get": "GET"
+      }
+    },
+    "Base": {
+      "template": "/base",
+      "synonym": "Сведения о базе",
+      "methods": {
+        "Get": "GET"
+      }
+    },
+    "Metadata": {
+      "template": "/metadata",
+      "synonym": "Состав конфигурации",
+      "methods": {
+        "Get": "GET"
+      }
+    },
+    "Object": {
+      "template": "/object",
+      "synonym": "Структура объекта",
+      "methods": {
+        "Get": "GET"
+      }
+    },
+    "Check": {
+      "template": "/check",
+      "synonym": "Разбор запроса",
+      "methods": {
+        "Post": "POST"
+      }
+    },
+    "Query": {
+      "template": "/query",
+      "synonym": "Выполнение запроса",
+      "methods": {
+        "Post": "POST"
+      }
+    },
+    "Records": {
+      "template": "/count",
+      "synonym": "Число записей",
+      "methods": {
+        "Post": "POST"
+      }
+    },
+    "Register": {
+      "template": "/register",
+      "synonym": "Итоги регистра",
+      "methods": {
+        "Post": "POST"
+      }
+    },
+    "EventLog": {
+      "template": "/eventlog",
+      "synonym": "Журнал регистрации",
+      "methods": {
+        "Get": "GET"
+      }
+    },
+    "Slice": {
+      "template": "/slice",
+      "synonym": "Срез последних регистра сведений",
+      "methods": {
+        "Post": "POST"
+      }
+    },
+    "Accounts": {
+      "template": "/accounts",
+      "synonym": "Итоги по счетам",
+      "methods": {
+        "Post": "POST"
+      }
+    }
+  }
+}

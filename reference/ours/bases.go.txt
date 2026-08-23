@@ -1,0 +1,280 @@
+package tools
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"sort"
+	"strings"
+	"sync"
+
+	"dat-tools-1c/onec"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+)
+
+// Мультибаза: один процесс сервера обслуживает несколько информационных баз,
+// а база выбирается параметром вызова, а не аргументом запуска.
+//
+// Схема повторяет ту, что у нас уже работает в rlm-tools-bsl: сервер один,
+// проекты (здесь — базы) регистрируются в реестре, каждый вызов называет
+// нужную. Цена альтернативы измерена: отдельная регистрация MCP на базу стоит
+// около 3,3 тыс. токенов контекста в КАЖДОМ сообщении, потому что описания
+// инструментов дублируются на каждую регистрацию. На двух базах это терпимо,
+// на двадцати — 65 тыс. токенов ни за что.
+
+// headingBases — заголовок отказа инструмента bases.
+const headingBases = "Действие с реестром баз не выполнено"
+
+// baseParamDescription — описание параметра base у рабочих инструментов.
+// Одно на всех: текст читает модель, и разночтения между инструментами она
+// принимает за разницу в поведении.
+const baseParamDescription = "Имя базы 1С из реестра (см. инструмент bases, action=list). " +
+	"Опущено — берётся база по умолчанию. Если баз несколько, называй нужную явно."
+
+// BaseSelector — источник клиента по имени базы. Интерфейс, а не *onec.Registry,
+// потому что тестам нужен реестр из одной поддельной базы, а не файл на диске.
+type BaseSelector interface {
+	Client(name string) (*onec.Client, error)
+	List() []onec.Base
+	Names() []string
+	Default() string
+	Add(b *onec.Base) error
+	Remove(name string) error
+	SetDefault(name string) error
+	Path() string
+}
+
+// baseArg — общая часть аргументов всех рабочих инструментов.
+//
+// Разбирается отдельно от аргументов самого инструмента: иначе параметр base
+// пришлось бы добавить в каждую входную структуру, а забытая структура молча
+// уводила бы вызов на базу по умолчанию — то есть отвечала бы данными не той
+// базы, ничем этого не показав.
+type baseArg struct {
+	Base string `json:"base,omitempty"`
+}
+
+// WithBase выбирает клиента по параметру base и отдаёт его конструктору
+// хендлера. Конструктор вызывается на каждый запрос, что дёшево: хендлеры в
+// этом пакете — замыкания над клиентом, без состояния и без ввода-вывода при
+// создании.
+func WithBase(sel BaseSelector, build func(*onec.Client) mcp.ToolHandler) mcp.ToolHandler {
+	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		var arg baseArg
+		if len(req.Params.Arguments) > 0 {
+			if err := json.Unmarshal(req.Params.Arguments, &arg); err != nil {
+				return nil, InvalidParams(argumentDecodeError(err))
+			}
+		}
+		client, err := sel.Client(arg.Base)
+		if err != nil {
+			return nil, InvalidParams(err)
+		}
+		return build(client)(ctx, req)
+	}
+}
+
+// WithBaseParam добавляет в схему инструмента необязательное свойство base.
+//
+// Схема правится программно, а не руками в каждом инструменте: свойство одно и
+// то же, а десять его копий разъезжаются при первой же правке формулировки.
+// Схема, которую не удалось разобрать, возвращается как была: инструмент без
+// параметра base работает по базе по умолчанию, и это лучше, чем отказ сервера
+// при старте из-за косметики.
+func WithBaseParam(t *mcp.Tool) *mcp.Tool {
+	if t == nil || t.InputSchema == nil {
+		return t
+	}
+
+	// InputSchema объявлена в SDK как any: инструменты этого пакета кладут туда
+	// json.RawMessage, но тип допускает и готовую структуру схемы. Поэтому
+	// значение сперва приводится к байтам маршалингом — для RawMessage это
+	// тождество, для структуры честная сериализация, — и лишь затем правится.
+	raw, err := json.Marshal(t.InputSchema)
+	if err != nil {
+		return t
+	}
+	var schema map[string]any
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		return t
+	}
+	props, ok := schema["properties"].(map[string]any)
+	if !ok {
+		props = map[string]any{}
+		schema["properties"] = props
+	}
+	props["base"] = map[string]any{
+		"type":        "string",
+		"description": baseParamDescription,
+	}
+	patched, err := json.Marshal(schema)
+	if err != nil {
+		return t
+	}
+	t.InputSchema = json.RawMessage(patched)
+	return t
+}
+
+// BasesTool — инструмент управления реестром баз.
+//
+// Один инструмент с полем action, а не четыре отдельных: каждое описание
+// инструмента постоянно висит в контексте модели, и четыре описания ради
+// операций, которые вызываются раз в жизни базы, — ровно тот расход, ради
+// сокращения которого мультибазу и делали.
+func BasesTool() *mcp.Tool {
+	return &mcp.Tool{
+		Name:  "dat_bases",
+		Title: "Реестр баз 1С",
+		Description: "Список зарегистрированных баз 1С и управление реестром: посмотреть, какие базы доступны " +
+			"(action=list), зарегистрировать новую по адресу её HTTP-сервиса (action=add), убрать (action=remove), " +
+			"назначить базу по умолчанию (action=set_default). Имя базы из этого списка передаётся остальным " +
+			"инструментам параметром base. Начинай с action=list, когда не знаешь, какие базы есть.",
+		InputSchema: json.RawMessage(`{
+			"type": "object",
+			"properties": {
+				"action": {
+					"type": "string",
+					"enum": ["list", "add", "remove", "set_default"],
+					"description": "Что сделать с реестром. По умолчанию list."
+				},
+				"name": {
+					"type": "string",
+					"description": "Имя базы — короткий ключ, которым она называется в параметре base (например ut11, bu3). Нужен для add, remove, set_default."
+				},
+				"url": {
+					"type": "string",
+					"description": "Адрес HTTP-сервиса базы, например http://localhost:8081/bu3/hs/mcp-1c. Нужен для add."
+				},
+				"user": {"type": "string", "description": "Пользователь 1С для HTTP-сервиса (add)."},
+				"password": {"type": "string", "description": "Пароль пользователя 1С (add)."},
+				"title": {"type": "string", "description": "Человекочитаемое название базы для списка (add, необязательно)."}
+			}
+		}`),
+	}
+}
+
+// basesInput — аргументы инструмента bases.
+type basesInput struct {
+	Action   string `json:"action,omitempty"`
+	Name     string `json:"name,omitempty"`
+	URL      string `json:"url,omitempty"`
+	User     string `json:"user,omitempty"`
+	Password string `json:"password,omitempty"`
+	Title    string `json:"title,omitempty"`
+}
+
+// NewBasesHandler возвращает обработчик инструмента bases.
+func NewBasesHandler(sel BaseSelector) mcp.ToolHandler {
+	return WithToolErrors(headingBases, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		var in basesInput
+		if len(req.Params.Arguments) > 0 {
+			if err := json.Unmarshal(req.Params.Arguments, &in); err != nil {
+				return nil, InvalidParams(argumentDecodeError(err))
+			}
+		}
+		action := strings.TrimSpace(strings.ToLower(in.Action))
+		if action == "" {
+			action = "list"
+		}
+
+		switch action {
+		case "list":
+			return textResult(formatBases(ctx, sel)), nil
+
+		case "add":
+			if strings.TrimSpace(in.Name) == "" || strings.TrimSpace(in.URL) == "" {
+				return nil, InvalidParams(fmt.Errorf("для action=add обязательны name и url"))
+			}
+			b := &onec.Base{
+				Name:     strings.TrimSpace(in.Name),
+				Title:    strings.TrimSpace(in.Title),
+				URL:      strings.TrimSpace(in.URL),
+				User:     in.User,
+				Password: in.Password,
+			}
+			if err := sel.Add(b); err != nil {
+				return nil, err
+			}
+			return textResult(fmt.Sprintf("База %q зарегистрирована.\n\n%s", b.Name, formatBases(ctx, sel))), nil
+
+		case "remove":
+			if strings.TrimSpace(in.Name) == "" {
+				return nil, InvalidParams(fmt.Errorf("для action=remove обязательно name"))
+			}
+			if err := sel.Remove(strings.TrimSpace(in.Name)); err != nil {
+				return nil, err
+			}
+			return textResult(fmt.Sprintf("База %q убрана из реестра.\n\n%s", in.Name, formatBases(ctx, sel))), nil
+
+		case "set_default":
+			if strings.TrimSpace(in.Name) == "" {
+				return nil, InvalidParams(fmt.Errorf("для action=set_default обязательно name"))
+			}
+			if err := sel.SetDefault(strings.TrimSpace(in.Name)); err != nil {
+				return nil, err
+			}
+			return textResult(fmt.Sprintf("База по умолчанию: %q.\n\n%s", in.Name, formatBases(ctx, sel))), nil
+
+		default:
+			known := []string{"list", "add", "remove", "set_default"}
+			sort.Strings(known)
+			return nil, InvalidParams(fmt.Errorf("неизвестное действие %q; допустимы: %s", in.Action, strings.Join(known, ", ")))
+		}
+	})
+}
+
+// formatBases печатает реестр таблицей.
+//
+// Пароли не печатаются никогда, адрес печатается: без него нельзя понять, та ли
+// это публикация. Конфигурация и её версия спрашиваются у самих баз — реестр их
+// не хранит СОЗНАТЕЛЬНО: сохранённая версия устаревает молча (базу обновили, а
+// список показывает вчерашнюю редакцию), и такой список хуже отсутствующего.
+// Опрос идёт параллельно; база, которая не ответила, помечается прямо здесь —
+// это первый признак того, что канал к ней лёг.
+func formatBases(ctx context.Context, sel BaseSelector) string {
+	list := sel.List()
+	def := sel.Default()
+
+	var b strings.Builder
+	b.WriteString("# Базы 1С в реестре\n\n")
+	if len(list) == 0 {
+		b.WriteString("Реестр пуст. Зарегистрируйте базу: action=add, name=<ключ>, url=<адрес HTTP-сервиса>.\n")
+		return b.String()
+	}
+
+	configs := make([]string, len(list))
+	var wg sync.WaitGroup
+	for i, x := range list {
+		wg.Add(1)
+		go func(i int, name string) {
+			defer wg.Done()
+			client, err := sel.Client(name)
+			if err != nil {
+				configs[i] = "—"
+				return
+			}
+			var info onec.ConfigurationInfo
+			if err := client.Get(ctx, "/configuration", &info); err != nil {
+				configs[i] = "не отвечает"
+				return
+			}
+			configs[i] = strings.TrimSpace(info.Name + " " + info.Version)
+		}(i, x.Name)
+	}
+	wg.Wait()
+
+	b.WriteString("| Имя | По умолчанию | Конфигурация | Название | Адрес | Пользователь |\n")
+	b.WriteString("|---|---|---|---|---|---|\n")
+	for i, x := range list {
+		mark := ""
+		if x.Name == def {
+			mark = "да"
+		}
+		fmt.Fprintf(&b, "| %s | %s | %s | %s | %s | %s |\n", x.Name, mark, configs[i], x.Title, x.URL, x.User)
+	}
+	fmt.Fprintf(&b, "\nВсего баз: %d. Вызов без параметра base уходит в %q.\n", len(list), def)
+	if p := sel.Path(); p != "" {
+		fmt.Fprintf(&b, "Реестр хранится в %s\n", p)
+	}
+	return b.String()
+}

@@ -1,0 +1,226 @@
+// Пакет installer ставит расширение доступа к данным в информационную базу 1С.
+//
+// Исходники расширения лежат внутри бинаря: это возможно ровно потому, что расширение
+// не заимствует язык расширяемой конфигурации и собрано с низким режимом совместимости —
+// одна и та же сборка встаёт в любую базу. Привязанное к конфигурации расширение
+// пришлось бы собирать на месте, а для этого нужна выгрузка целевой конфигурации.
+package installer
+
+import (
+	"bytes"
+	"embed"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"sort"
+	"strings"
+)
+
+//go:embed extension
+var extensionFS embed.FS
+
+// ExtensionName — имя расширения в базе. По нему же оно обновляется и удаляется.
+const ExtensionName = "GTData"
+
+// Options — что и куда ставим.
+type Options struct {
+	// Base — файловая база (путь к каталогу) либо, при Server, строка «сервер\база».
+	Base   string
+	Server bool
+	// User и Password — учётные данные ПОЛЬЗОВАТЕЛЯ БАЗЫ для конфигуратора,
+	// а не веб-сервиса: конфигуратор ходит в базу напрямую.
+	User     string
+	Password string
+	// Platform — путь к 1cv8.exe; пусто — ищем сами.
+	Platform string
+}
+
+// Install разворачивает расширение и загружает его конфигуратором.
+func Install(opts Options) error {
+	if strings.TrimSpace(opts.Base) == "" {
+		return fmt.Errorf("база не названа: укажите путь к файловой базе или строку сервер\\база с флагом -server")
+	}
+
+	platform, err := resolvePlatform(opts.Platform)
+	if err != nil {
+		return err
+	}
+
+	dir, err := unpack()
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(dir)
+
+	logFile := filepath.Join(dir, "designer.log")
+	args := []string{"DESIGNER"}
+	if opts.Server {
+		args = append(args, "/S", opts.Base)
+	} else {
+		args = append(args, "/F", opts.Base)
+	}
+	if opts.User != "" {
+		args = append(args, "/N"+opts.User)
+	}
+	if opts.Password != "" {
+		args = append(args, "/P"+opts.Password)
+	}
+	args = append(args,
+		"/LoadConfigFromFiles", dir,
+		"-Format", "Hierarchical",
+		"-Extension", ExtensionName,
+		"/UpdateDBCfg",
+		"/Out", logFile,
+		"/DisableStartupDialogs",
+	)
+
+	cmd := exec.Command(platform, args...)
+	runErr := cmd.Run()
+
+	// Код возврата конфигуратора — слабое доказательство: 1cv8.exe оконное приложение
+	// и умеет отрапортовать успехом, застряв на диалоге. Поэтому решает журнал.
+	//
+	// Пустой журнал означает успех: конфигуратор пишет в /Out только то, что пошло не так.
+	// Файл при этом не нулевой — в нём стоит метка кодировки, и её надо снять,
+	// иначе успешная установка читается как ошибка.
+	report, _ := os.ReadFile(logFile)
+	report = bytes.TrimPrefix(report, []byte{0xEF, 0xBB, 0xBF})
+	text := strings.TrimSpace(string(report))
+
+	if runErr != nil {
+		if text != "" {
+			return fmt.Errorf("конфигуратор отказал: %v\n%s", runErr, text)
+		}
+		return fmt.Errorf("конфигуратор отказал: %v", runErr)
+	}
+	if text != "" {
+		return fmt.Errorf("конфигуратор завершился без ошибки, но журнал не пуст:\n%s", text)
+	}
+	return nil
+}
+
+// unpack разворачивает встроенные исходники во временный каталог.
+func unpack() (string, error) {
+	dir, err := os.MkdirTemp("", "gt-data-1c-ext-")
+	if err != nil {
+		return "", fmt.Errorf("временный каталог не создан: %w", err)
+	}
+
+	err = copyDir("extension", dir)
+	if err != nil {
+		os.RemoveAll(dir)
+		return "", err
+	}
+	return dir, nil
+}
+
+func copyDir(src, dst string) error {
+	entries, err := extensionFS.ReadDir(src)
+	if err != nil {
+		return fmt.Errorf("встроенные исходники не прочитаны: %w", err)
+	}
+	for _, entry := range entries {
+		from := src + "/" + entry.Name()
+		to := filepath.Join(dst, entry.Name())
+
+		if entry.IsDir() {
+			if err := os.MkdirAll(to, 0o700); err != nil {
+				return err
+			}
+			if err := copyDir(from, to); err != nil {
+				return err
+			}
+			continue
+		}
+
+		data, err := extensionFS.ReadFile(from)
+		if err != nil {
+			return fmt.Errorf("файл %s не прочитан: %w", from, err)
+		}
+		if err := os.WriteFile(to, data, 0o600); err != nil {
+			return fmt.Errorf("файл %s не записан: %w", to, err)
+		}
+	}
+	return nil
+}
+
+// resolvePlatform ищет конфигуратор: по указанному пути либо среди установленных версий,
+// выбирая старшую. Версии сравниваются по числам, а не по строке — иначе 8.3.9 окажется
+// «новее» 8.3.27.
+func resolvePlatform(explicit string) (string, error) {
+	if explicit != "" {
+		if info, err := os.Stat(explicit); err == nil && !info.IsDir() {
+			return explicit, nil
+		}
+		candidate := filepath.Join(explicit, "1cv8.exe")
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate, nil
+		}
+		return "", fmt.Errorf("конфигуратор не найден по указанному пути: %s", explicit)
+	}
+
+	roots := []string{
+		`C:\Program Files\1cv8`,
+		`C:\Program Files (x86)\1cv8`,
+	}
+	var found []string
+	for _, root := range roots {
+		entries, err := os.ReadDir(root)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+			exe := filepath.Join(root, entry.Name(), "bin", "1cv8.exe")
+			if _, err := os.Stat(exe); err == nil {
+				found = append(found, exe)
+			}
+		}
+	}
+	if len(found) == 0 {
+		return "", fmt.Errorf("конфигуратор 1С не найден в %s — укажите путь флагом -platform",
+			strings.Join(roots, ", "))
+	}
+
+	sort.Slice(found, func(i, j int) bool {
+		return versionLess(versionOf(found[j]), versionOf(found[i])) // по убыванию
+	})
+	return found[0], nil
+}
+
+// versionOf достаёт «8.3.27.2130» из пути вида ...\1cv8\8.3.27.2130\bin\1cv8.exe.
+func versionOf(path string) string {
+	parts := strings.Split(filepath.ToSlash(path), "/")
+	for i, part := range parts {
+		if strings.EqualFold(part, "bin") && i > 0 {
+			return parts[i-1]
+		}
+	}
+	return ""
+}
+
+// versionLess сравнивает версии почисленно.
+func versionLess(a, b string) bool {
+	as, bs := strings.Split(a, "."), strings.Split(b, ".")
+	for i := 0; i < len(as) && i < len(bs); i++ {
+		x, y := atoi(as[i]), atoi(bs[i])
+		if x != y {
+			return x < y
+		}
+	}
+	return len(as) < len(bs)
+}
+
+func atoi(s string) int {
+	n := 0
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return n
+		}
+		n = n*10 + int(r-'0')
+	}
+	return n
+}
