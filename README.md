@@ -85,7 +85,7 @@ gtdata.exe -install "сервер\база" -server -db-user <пользоват
 ## Регистрация базы у сервера
 
 ```
-bases action=add name=ut11 url=http://localhost:8081/ut11/hs/gt-data user=… password=…
+bases action=add name=<ключ> url=http://<хост>/<база>/hs/gt-data user=… password=…
 ```
 
 Реестр лежит в профиле пользователя (`%AppData%/gt-data-1c/bases.json`, права 0600 —

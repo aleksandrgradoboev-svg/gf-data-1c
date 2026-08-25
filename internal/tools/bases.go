@@ -20,7 +20,7 @@ import (
 // BasesInput — параметры инструмента управления реестром баз.
 type BasesInput struct {
 	Action   string `json:"action,omitempty" jsonschema:"Что сделать с реестром: list (умолчание), add, remove, set_default"`
-	Name     string `json:"name,omitempty" jsonschema:"Короткий ключ базы, которым она называется в параметре base (например ut11, bu3)"`
+	Name     string `json:"name,omitempty" jsonschema:"Короткий ключ базы, которым она называется в параметре base (например buh, trade)"`
 	URL      string `json:"url,omitempty" jsonschema:"Адрес HTTP-сервиса базы (нужен для add)"`
 	User     string `json:"user,omitempty" jsonschema:"Пользователь 1С для HTTP-сервиса (add)"`
 	Password string `json:"password,omitempty" jsonschema:"Пароль пользователя 1С (add). Хранится защищённым средствами Windows, в открытом виде в файл не попадает"`
