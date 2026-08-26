@@ -67,16 +67,17 @@ func (s *Set) Slice(ctx context.Context, _ *mcp.CallToolRequest, in SliceInput) 
 // ── Итоги по счетам ───────────────────────────────────────────────────────────
 
 type AccountsInput struct {
-	Base       string         `json:"base,omitempty" jsonschema:"Имя базы 1С из реестра. Опущено — база по умолчанию"`
-	Account    string         `json:"account" jsonschema:"Код счёта, например 41 или 62.01"`
-	Kind       string         `json:"kind,omitempty" jsonschema:"Остатки (умолчание), Обороты или ОстаткиИОбороты"`
-	Period     string         `json:"period,omitempty" jsonschema:"Дата остатков для kind=Остатки. Пусто — на текущий момент"`
-	Start      string         `json:"start,omitempty" jsonschema:"Начало периода для Обороты и ОстаткиИОбороты"`
-	End        string         `json:"end,omitempty" jsonschema:"Конец периода для Обороты и ОстаткиИОбороты"`
-	Register   string         `json:"register,omitempty" jsonschema:"Имя регистра бухгалтерии (по умолчанию Хозрасчетный)"`
-	Resources  []string       `json:"resources,omitempty" jsonschema:"Показатели: СуммаОстатокДт, СуммаОборотДт и т.п. Пусто — стандартный набор для выбранного вида"`
-	Parameters map[string]any `json:"parameters,omitempty" jsonschema:"Параметры отбора: ключ без амперсанда"`
-	Limit      int            `json:"limit,omitempty" jsonschema:"Сколько строк вернуть (по умолчанию 100, максимум 1000)"`
+	Base        string         `json:"base,omitempty" jsonschema:"Имя базы 1С из реестра. Опущено — база по умолчанию"`
+	Account     string         `json:"account" jsonschema:"Код счёта, например 41 или 62.01"`
+	Kind        string         `json:"kind,omitempty" jsonschema:"Остатки (умолчание), Обороты или ОстаткиИОбороты"`
+	Period      string         `json:"period,omitempty" jsonschema:"Дата остатков для kind=Остатки. Пусто — на текущий момент"`
+	Start       string         `json:"start,omitempty" jsonschema:"Начало периода для Обороты и ОстаткиИОбороты"`
+	End         string         `json:"end,omitempty" jsonschema:"Конец периода для Обороты и ОстаткиИОбороты"`
+	Periodicity string         `json:"periodicity,omitempty" jsonschema:"Разбивка периода: Месяц, Квартал, Год, День, Регистратор. Пусто — один итог за весь период"`
+	Register    string         `json:"register,omitempty" jsonschema:"Имя регистра бухгалтерии (по умолчанию Хозрасчетный)"`
+	Resources   []string       `json:"resources,omitempty" jsonschema:"Показатели: СуммаОстатокДт, СуммаОборотДт и т.п. Пусто — стандартный набор для выбранного вида"`
+	Parameters  map[string]any `json:"parameters,omitempty" jsonschema:"Параметры отбора: ключ без амперсанда"`
+	Limit       int            `json:"limit,omitempty" jsonschema:"Сколько строк вернуть (по умолчанию 100, максимум 1000)"`
 }
 
 func AccountsTool() *mcp.Tool {
@@ -84,7 +85,9 @@ func AccountsTool() *mcp.Tool {
 		Name: "accounts",
 		Description: "Получить бухгалтерские итоги по счёту: остатки на дату (kind=Остатки), обороты " +
 			"за период (kind=Обороты) или полную картину с начальным и конечным остатком " +
-			"(kind=ОстаткиИОбороты). Счёт задаётся кодом — 41, 62.01, 51. Суммы приходят раздельно " +
+			"(kind=ОстаткиИОбороты). Счёт задаётся кодом — 41, 62.01, 51. Разбивку по периодам даёт " +
+			"periodicity (Месяц, Квартал, Год) — так собирается движение счёта помесячно, без единой " +
+			"строки на языке запросов. Суммы приходят раздельно " +
 			"по дебету и кредиту. Это для конфигураций с бухгалтерским учётом; складские и товарные " +
 			"итоги живут в регистрах накопления, их берёт инструмент register.",
 	}
@@ -104,7 +107,7 @@ func (s *Set) Accounts(ctx context.Context, _ *mcp.CallToolRequest, in AccountsI
 	payload := map[string]any{"account": in.Account}
 	for key, value := range map[string]string{
 		"kind": in.Kind, "period": in.Period, "start": in.Start,
-		"end": in.End, "register": in.Register,
+		"end": in.End, "register": in.Register, "periodicity": in.Periodicity,
 	} {
 		if strings.TrimSpace(value) != "" {
 			payload[key] = value

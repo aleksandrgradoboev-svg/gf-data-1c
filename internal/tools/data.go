@@ -43,7 +43,8 @@ func (s *Set) QueryCheck(ctx context.Context, _ *mcp.CallToolRequest, in QueryCh
 	}
 	var reply checkReply
 	if err := client.Tell(ctx, "check", map[string]any{"query": in.Query}, &reply); err != nil {
-		return nil, nil, err
+		// Проверка запроса — то место, где подсказка нужнее всего: сюда приходят с черновиком.
+		return nil, nil, EnrichQueryRefusal(err, in.Query, nil)
 	}
 	return text(fmt.Sprintf("Запрос разобран. Колонки (%d): %s",
 		len(reply.Колонки), strings.Join(reply.Колонки, ", "))), nil, nil
@@ -112,7 +113,9 @@ func (s *Set) Query(ctx context.Context, _ *mcp.CallToolRequest, in QueryInput) 
 
 	var reply queryReply
 	if err := client.Tell(ctx, "query", payload, &reply); err != nil {
-		return nil, nil, err
+		// Отказ платформы точен, но односложен: к нему дописывается то, что известно про
+		// виртуальные таблицы и язык запросов, — иначе вызывающий уходит угадывать.
+		return nil, nil, EnrichQueryRefusal(err, in.Query, in.Parameters)
 	}
 	return text(renderTable(client.Base().Name, reply)), nil, nil
 }

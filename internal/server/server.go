@@ -41,6 +41,7 @@ func New(opts Options) *mcp.Server {
 	mcp.AddTool(srv, tools.SliceTool(), set.Slice)
 	mcp.AddTool(srv, tools.AccountsTool(), set.Accounts)
 	mcp.AddTool(srv, tools.ExportTool(), set.Export)
+	mcp.AddTool(srv, tools.SyntaxTool(), set.Syntax)
 	mcp.AddTool(srv, tools.EventLogTool(), set.EventLog)
 
 	return srv
