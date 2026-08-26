@@ -42,7 +42,7 @@ var типыПрежнегоКанала = map[string]string{
 func TestПриёмкаЧислаСовпадаютСЭталоном(t *testing.T) {
 	cs, ctx := liveSession(t)
 
-	out, isErr := call(t, cs, ctx, "base_info", nil)
+	out, isErr := call(t, cs, ctx, "base_info", map[string]any{"base": "ut11"})
 	if isErr {
 		t.Fatalf("паспорт базы не получен: %s", out)
 	}
@@ -52,7 +52,7 @@ func TestПриёмкаЧислаСовпадаютСЭталоном(t *testing
 		}
 	}
 
-	out, isErr = call(t, cs, ctx, "count", map[string]any{"table": "Справочник.Номенклатура"})
+	out, isErr = call(t, cs, ctx, "count", map[string]any{"base": "ut11", "table": "Справочник.Номенклатура"})
 	if isErr {
 		t.Fatalf("счёт не выполнен: %s", out)
 	}
@@ -61,7 +61,7 @@ func TestПриёмкаЧислаСовпадаютСЭталоном(t *testing
 			got, эталонНоменклатуры)
 	}
 
-	out, isErr = call(t, cs, ctx, "register", map[string]any{
+	out, isErr = call(t, cs, ctx, "register", map[string]any{"base": "ut11",
 		"register": "ТоварыНаСкладах", "kind": "Остатки",
 		"dimensions": []string{"Склад"}, "resources": []string{"ВНаличииОстаток"},
 	})
@@ -122,7 +122,7 @@ func TestПриёмкаВсеТипыПрежнегоКаналаРаботаю�
 		if проверено[тип] {
 			continue
 		}
-		out, isErr := call(t, cs, ctx, "object", map[string]any{
+		out, isErr := call(t, cs, ctx, "object", map[string]any{"base": "ut11",
 			"object_type": тип, "object_name": "ЗаведомоНесуществующийОбъект",
 		})
 		if !isErr {
@@ -141,9 +141,9 @@ func TestПриёмкаОсобыеПоляОбъектов(t *testing.T) {
 	cs, ctx := liveSession(t)
 
 	// Подсистема без состава бесполезна: ради состава её и спрашивают.
-	list, _ := call(t, cs, ctx, "metadata", map[string]any{"filter": "Подсистемы"})
+	list, _ := call(t, cs, ctx, "metadata", map[string]any{"base": "ut11", "filter": "Подсистемы"})
 	if имя := firstObjectName(list); имя != "" {
-		out, isErr := call(t, cs, ctx, "object", map[string]any{
+		out, isErr := call(t, cs, ctx, "object", map[string]any{"base": "ut11",
 			"object_type": "Subsystem", "object_name": имя,
 		})
 		if isErr || !strings.Contains(out, "Состав подсистемы") && !strings.Contains(out, "Вложенные подсистемы") {
@@ -152,9 +152,9 @@ func TestПриёмкаОсобыеПоляОбъектов(t *testing.T) {
 	}
 
 	// Определяемый тип без состава типов — тупик: видно имя, не видно, что за ним.
-	list, _ = call(t, cs, ctx, "metadata", map[string]any{"filter": "ОпределяемыеТипы"})
+	list, _ = call(t, cs, ctx, "metadata", map[string]any{"base": "ut11", "filter": "ОпределяемыеТипы"})
 	if имя := firstObjectName(list); имя != "" {
-		out, isErr := call(t, cs, ctx, "object", map[string]any{
+		out, isErr := call(t, cs, ctx, "object", map[string]any{"base": "ut11",
 			"object_type": "DefinedType", "object_name": имя,
 		})
 		if isErr || !strings.Contains(out, "Состав определяемого типа") {
@@ -166,14 +166,14 @@ func TestПриёмкаОсобыеПоляОбъектов(t *testing.T) {
 func TestПриёмкаЗапросРазбираетсяБезИсполнения(t *testing.T) {
 	cs, ctx := liveSession(t)
 
-	out, isErr := call(t, cs, ctx, "query_check", map[string]any{
+	out, isErr := call(t, cs, ctx, "query_check", map[string]any{"base": "ut11",
 		"query": "ВЫБРАТЬ ПЕРВЫЕ 1 Ссылка КАК Ссылка ИЗ Справочник.Номенклатура",
 	})
 	if isErr || !strings.Contains(out, "Ссылка") {
 		t.Errorf("разбор запроса не удался: %s", out)
 	}
 
-	out, isErr = call(t, cs, ctx, "query_check", map[string]any{
+	out, isErr = call(t, cs, ctx, "query_check", map[string]any{"base": "ut11",
 		"query": "ВЫБРАТЬ ИЗ ИЗ Справочник.Номенклатура",
 	})
 	if !isErr {
@@ -184,7 +184,7 @@ func TestПриёмкаЗапросРазбираетсяБезИсполнен�
 func TestПриёмкаЖурналРегистрации(t *testing.T) {
 	cs, ctx := liveSession(t)
 
-	out, isErr := call(t, cs, ctx, "eventlog", map[string]any{"limit": 5})
+	out, isErr := call(t, cs, ctx, "eventlog", map[string]any{"base": "ut11", "limit": 5})
 	if isErr {
 		t.Fatalf("журнал регистрации не прочитан: %s", out)
 	}

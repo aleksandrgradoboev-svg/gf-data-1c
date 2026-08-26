@@ -95,7 +95,15 @@ func (c *Client) PostJSON(ctx context.Context, method string, payload any) ([]by
 	return c.do(ctx, http.MethodPost, method, nil, body)
 }
 
+// do — единственная точка выхода обращений к базе, и потому единственное место, где
+// отказу проставляется её имя. Раскладывать Stamp по всем ветвям было бы то же самое,
+// что просить не забывать: следующая добавленная ветвь про это не узнает.
 func (c *Client) do(ctx context.Context, verb, method string, query url.Values, body []byte) ([]byte, error) {
+	data, err := c.doRaw(ctx, verb, method, query, body)
+	return data, refusal.Stamp(err, c.base.Name)
+}
+
+func (c *Client) doRaw(ctx context.Context, verb, method string, query url.Values, body []byte) ([]byte, error) {
 	endpoint := strings.TrimRight(c.base.URL, "/") + "/" + strings.TrimLeft(method, "/")
 	if len(query) > 0 {
 		endpoint += "?" + query.Encode()

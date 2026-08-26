@@ -2,7 +2,14 @@
 //
 // Мультибаза — исходное требование, а не опция. Отсюда два правила, заложенные в тип:
 // имя базы разрешается явно и только по реестру, а незнакомое имя даёт отказ с перечнем
-// известных — молчаливый уход в базу по умолчанию выглядел бы как достоверный ответ.
+// известных — молчаливый уход не в ту базу выглядел бы как достоверный ответ.
+//
+// Базы по умолчанию нет и не предусмотрено. Она была, и 26.08.2026 её вырезали по случаю
+// из живой работы: вызов object без base ушёл в базу по умолчанию, документ другой
+// конфигурации там не нашёлся, и модель принялась перебирать имена — «может, он называется
+// иначе». Отказ, не назвавший базу, читается как факт о конфигурации, а не как промах вызова.
+// Поэтому умолчания нет как МЕХАНИЗМА: правило, которое можно обойти, не назвав параметр,
+// исполняется ровно до первой спешки.
 //
 // Учётные данные хранятся отдельно от адреса: в URL они не попадают никогда, иначе
 // рано или поздно уедут в журнал вместе с адресом.
@@ -39,10 +46,12 @@ func (b Base) Secret() (string, error) {
 	return secret.Reveal(b.Password)
 }
 
-// Registry — реестр баз с базой по умолчанию.
+// Registry — реестр баз. Базы по умолчанию у него нет: см. шапку пакета.
+//
+// Ключ "default" в старых файлах реестра остаётся нераспознанным и просто игнорируется
+// при чтении — отдельной миграции это не требует.
 type Registry struct {
-	Default string `json:"default,omitempty"`
-	Bases   []Base `json:"bases"`
+	Bases []Base `json:"bases"`
 
 	path string
 }
@@ -140,21 +149,22 @@ func (r *Registry) Names() []string {
 	return names
 }
 
-// Resolve возвращает базу по имени. Пустое имя означает базу по умолчанию —
-// и это единственный случай, когда сервер выбирает базу за вызывающего.
+// Resolve возвращает базу по имени. Пустое имя — всегда отказ: базу выбирает вызывающий,
+// сервер за него не выбирает никогда.
+//
+// Поблажки «если база одна — бери её» здесь тоже нет, и это не строгость ради строгости:
+// с нею умолчание возвращается само в тот день, когда баз в реестре останется одна, —
+// а правило, действующее не всегда, не действует.
 func (r *Registry) Resolve(name string) (Base, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
-		if r.Default == "" {
-			if len(r.Bases) == 1 {
-				return r.Bases[0], nil
-			}
-			return Base{}, refusal.New(refusal.BadRequest,
-				"база не названа", "базы по умолчанию нет, а в реестре их "+fmt.Sprint(len(r.Bases)),
-				"назовите базу параметром base",
-				"или назначьте базу по умолчанию: bases с action=set_default")
+		why := "в реестре баз: " + fmt.Sprint(len(r.Bases))
+		if len(r.Bases) == 0 {
+			why = "реестр баз пуст"
 		}
-		name = r.Default
+		return Base{}, refusal.New(refusal.BadRequest, "база не названа", why,
+			"назовите базу параметром base — базы по умолчанию у сервера нет",
+			"перечень баз — инструмент bases с action=list")
 	}
 	for _, b := range r.Bases {
 		if strings.EqualFold(b.Name, name) {
@@ -177,9 +187,6 @@ func (r *Registry) Add(b Base) error {
 		}
 	}
 	r.Bases = append(r.Bases, b)
-	if r.Default == "" {
-		r.Default = b.Name
-	}
 	return r.Save()
 }
 
@@ -188,23 +195,8 @@ func (r *Registry) Remove(name string) error {
 	for i, b := range r.Bases {
 		if strings.EqualFold(b.Name, name) {
 			r.Bases = append(r.Bases[:i], r.Bases[i+1:]...)
-			if strings.EqualFold(r.Default, name) {
-				r.Default = ""
-				if len(r.Bases) == 1 {
-					r.Default = r.Bases[0].Name
-				}
-			}
 			return r.Save()
 		}
 	}
 	return refusal.UnknownBaseError(name, r.Names())
-}
-
-// SetDefault назначает базу по умолчанию.
-func (r *Registry) SetDefault(name string) error {
-	if _, err := r.Resolve(name); err != nil {
-		return err
-	}
-	r.Default = name
-	return r.Save()
 }

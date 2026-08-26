@@ -7,6 +7,7 @@
 package refusal
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -25,8 +26,13 @@ const (
 )
 
 // Error — отказ с причиной и подсказкой, что делать.
+//
+// Base — имя базы, к которой относится отказ. Без него «в этой конфигурации такого нет»
+// читается как факт о 1С вообще, и вызывающий начинает перебирать имена объекта вместо
+// того, чтобы усомниться в базе. Ровно этот сценарий и наблюдался 26.08.2026.
 type Error struct {
 	Kind  Kind
+	Base  string   // база, к которой относится отказ (пусто — отказ не про конкретную базу)
 	What  string   // что не удалось сделать
 	Why   string   // чем именно ответила та сторона
 	Hints []string // что предпринять вызывающему
@@ -34,7 +40,15 @@ type Error struct {
 
 func (e *Error) Error() string {
 	var b strings.Builder
-	b.WriteString("ОТКАЗ: ")
+	b.WriteString("ОТКАЗ")
+	if e.Base != "" {
+		// База называется в самой первой строке, а не сноской внизу: отказ, прочитанный
+		// до конца, — не то же самое, что отказ, прочитанный до первой точки.
+		b.WriteString(" (база ")
+		b.WriteString(e.Base)
+		b.WriteString(")")
+	}
+	b.WriteString(": ")
 	b.WriteString(e.What)
 	if e.Why != "" {
 		b.WriteString(" — ")
@@ -63,4 +77,14 @@ func UnknownBaseError(name string, known []string) *Error {
 	return New(UnknownBase, fmt.Sprintf("база %q не найдена", name), why,
 		"перечень баз — инструмент bases с action=list",
 		"добавить базу — bases с action=add, url и учётными данными")
+}
+
+// Stamp проставляет базу отказу, если она ещё не названа, и возвращает его же.
+// Чужие ошибки и отказы, уже знающие свою базу, проходят насквозь.
+func Stamp(err error, base string) error {
+	var e *Error
+	if errors.As(err, &e) && e.Base == "" {
+		e.Base = base
+	}
+	return err
 }

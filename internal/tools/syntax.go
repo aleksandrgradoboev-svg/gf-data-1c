@@ -51,20 +51,43 @@ func SyntaxTool() *mcp.Tool {
 	}
 }
 
+// kbNames — имена файлов базы справки, в порядке предпочтения. Отдельный файл платформы идёт
+// первым: справка платформы и справка типовых конфигураций — разные книги для разных читателей
+// (syntax читает первую, скилл kb-1c — вторую), и одно имя на обе означает, что рано или поздно
+// одна перезапишет другую молча. Общее имя оставлено вторым ради совместимости: там, где справка
+// собрана одним файлом, ничего не сломается.
+var kbNames = []string{"1c-platform-help.db", "1c-help.db"}
+
+// kbCandidates — порядок поиска базы справки, отделённый от файловой системы, чтобы его можно
+// было проверить тестом: порядок здесь и есть правило, а правило, которое некому нарушить
+// заметно, живёт ровно до первой правки.
+func kbCandidates(env, pkgRoot, workDir string) []string {
+	var out []string
+	if env != "" {
+		out = append(out, env)
+	}
+	for _, dir := range []string{pkgRoot, workDir} {
+		if dir == "" {
+			continue
+		}
+		for _, name := range kbNames {
+			out = append(out, filepath.Join(dir, "kb", name))
+		}
+	}
+	return out
+}
+
 // kbPath — где лежит база справки. Переменная окружения важнее: она позволяет держать справку
 // вне пакета и обновлять её, не пересобирая сервер.
 func kbPath() (string, bool) {
-	var candidates []string
-	if env := strings.TrimSpace(os.Getenv("GTDATA_KB")); env != "" {
-		candidates = append(candidates, env)
-	}
+	var pkg, wd string
 	if exe, err := os.Executable(); err == nil {
-		pkg := filepath.Dir(filepath.Dir(filepath.Dir(exe))) // bin → gt-data-1c → корень пакета
-		candidates = append(candidates, filepath.Join(pkg, "kb", "1c-help.db"))
+		pkg = filepath.Dir(filepath.Dir(filepath.Dir(exe))) // bin → gt-data-1c → корень пакета
 	}
-	if wd, err := os.Getwd(); err == nil {
-		candidates = append(candidates, filepath.Join(wd, "kb", "1c-help.db"))
+	if cur, err := os.Getwd(); err == nil {
+		wd = cur
 	}
+	candidates := kbCandidates(strings.TrimSpace(os.Getenv("GTDATA_KB")), pkg, wd)
 	for _, c := range candidates {
 		if st, err := os.Stat(c); err == nil && !st.IsDir() {
 			return c, true
@@ -77,7 +100,7 @@ func openKB() (*sql.DB, error) {
 	path, ok := kbPath()
 	if !ok {
 		return nil, refusal.New(refusal.BadRequest, "справка платформы недоступна",
-			"базы справки нет ни по GTDATA_KB, ни рядом с пакетом (kb/1c-help.db)",
+			"базы справки нет ни по GTDATA_KB, ни рядом с пакетом (kb/1c-platform-help.db, kb/1c-help.db)",
 			"собрать: python tools/kb/hbk-extract.py --hbk <платформа>/bin/shquery_ru.hbk --to-kb kb/1c-help.db",
 			"то же для shcntx_ru.hbk — там таблицы платформы и их поля",
 			"работа по данным этим не блокируется: числа берутся из базы, а не из справки")

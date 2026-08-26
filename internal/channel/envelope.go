@@ -27,7 +27,7 @@ func (c *Client) Ask(ctx context.Context, method string, query url.Values, out a
 	if err != nil {
 		return err
 	}
-	return unwrap(data, out)
+	return refusal.Stamp(unwrap(data, out), c.base.Name)
 }
 
 // Tell выполняет POST с телом JSON и разбирает ответ в out.
@@ -36,7 +36,7 @@ func (c *Client) Tell(ctx context.Context, method string, payload, out any) erro
 	if err != nil {
 		return err
 	}
-	return unwrap(data, out)
+	return refusal.Stamp(unwrap(data, out), c.base.Name)
 }
 
 func unwrap(data []byte, out any) error {

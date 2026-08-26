@@ -16,7 +16,7 @@ import (
 // ── Проверка запроса ──────────────────────────────────────────────────────────
 
 type QueryCheckInput struct {
-	Base  string `json:"base,omitempty" jsonschema:"Имя базы 1С из реестра. Опущено — база по умолчанию"`
+	Base  string `json:"base" jsonschema:"Имя базы 1С из реестра. Обязательно; перечень — bases с action=list"`
 	Query string `json:"query" jsonschema:"Текст запроса на языке запросов 1С для проверки"`
 }
 
@@ -53,7 +53,7 @@ func (s *Set) QueryCheck(ctx context.Context, _ *mcp.CallToolRequest, in QueryCh
 // ── Запрос ────────────────────────────────────────────────────────────────────
 
 type QueryInput struct {
-	Base       string         `json:"base,omitempty" jsonschema:"Имя базы 1С из реестра. Опущено — база по умолчанию"`
+	Base       string         `json:"base" jsonschema:"Имя базы 1С из реестра. Обязательно; перечень — bases с action=list"`
 	Query      string         `json:"query" jsonschema:"Текст запроса на языке запросов 1С. Только ВЫБРАТЬ/SELECT. Параметры через &ИмяПараметра"`
 	Parameters map[string]any `json:"parameters,omitempty" jsonschema:"Параметры запроса: ключ без амперсанда. Даты строкой ГГГГ-ММ-ДД"`
 	Limit      int            `json:"limit,omitempty" jsonschema:"Максимум строк результата (по умолчанию 100, максимум 1000)"`
@@ -123,7 +123,7 @@ func (s *Set) Query(ctx context.Context, _ *mcp.CallToolRequest, in QueryInput) 
 // ── Счёт записей ──────────────────────────────────────────────────────────────
 
 type CountInput struct {
-	Base       string         `json:"base,omitempty" jsonschema:"Имя базы 1С из реестра. Опущено — база по умолчанию"`
+	Base       string         `json:"base" jsonschema:"Имя базы 1С из реестра. Обязательно; перечень — bases с action=list"`
 	Table      string         `json:"table" jsonschema:"Таблица 1С: Справочник.X, Документ.X, РегистрНакопления.X, РегистрСведений.X, РегистрБухгалтерии.X"`
 	Where      string         `json:"where,omitempty" jsonschema:"Условие отбора без слова ГДЕ, например: Дата МЕЖДУ &Н И &К И НЕ ПометкаУдаления"`
 	Parameters map[string]any `json:"parameters,omitempty" jsonschema:"Параметры условия: ключ без амперсанда"`
@@ -177,7 +177,7 @@ func (s *Set) Count(ctx context.Context, _ *mcp.CallToolRequest, in CountInput) 
 // ── Итоги регистра ────────────────────────────────────────────────────────────
 
 type RegisterInput struct {
-	Base       string   `json:"base,omitempty" jsonschema:"Имя базы 1С из реестра. Опущено — база по умолчанию"`
+	Base       string   `json:"base" jsonschema:"Имя базы 1С из реестра. Обязательно; перечень — bases с action=list"`
 	Register   string   `json:"register" jsonschema:"Имя регистра накопления без префикса, например ТоварыНаСкладах"`
 	Kind       string   `json:"kind,omitempty" jsonschema:"Какая виртуальная таблица нужна: Остатки (умолчание), Обороты, ОстаткиИОбороты"`
 	Period     string   `json:"period,omitempty" jsonschema:"Дата остатков для kind=Остатки, например 2026-06-30. Пусто — на текущий момент"`
@@ -244,7 +244,7 @@ func (s *Set) Register(ctx context.Context, _ *mcp.CallToolRequest, in RegisterI
 // ── Журнал регистрации ────────────────────────────────────────────────────────
 
 type EventLogInput struct {
-	Base      string `json:"base,omitempty" jsonschema:"Имя базы 1С из реестра. Опущено — база по умолчанию"`
+	Base      string `json:"base" jsonschema:"Имя базы 1С из реестра. Обязательно; перечень — bases с action=list"`
 	StartDate string `json:"start_date,omitempty" jsonschema:"Начало периода в формате ISO 8601, например 2026-03-01T00:00:00"`
 	EndDate   string `json:"end_date,omitempty" jsonschema:"Конец периода в формате ISO 8601"`
 	Level     string `json:"level,omitempty" jsonschema:"Уровень важности: Ошибка, Предупреждение, Информация, Примечание"`

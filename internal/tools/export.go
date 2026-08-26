@@ -25,7 +25,7 @@ const pageSize = 1000
 const maxExportRows = 500_000
 
 type ExportInput struct {
-	Base       string         `json:"base,omitempty" jsonschema:"Имя базы 1С из реестра. Опущено — база по умолчанию"`
+	Base       string         `json:"base" jsonschema:"Имя базы 1С из реестра. Обязательно; перечень — bases с action=list"`
 	Query      string         `json:"query" jsonschema:"Текст запроса на языке 1С. Только ВЫБРАТЬ. Для устойчивой выгрузки добавьте УПОРЯДОЧИТЬ"`
 	Parameters map[string]any `json:"parameters,omitempty" jsonschema:"Параметры запроса: ключ без амперсанда"`
 	Format     string         `json:"format,omitempty" jsonschema:"Формат файла: csv (умолчание) или jsonl"`

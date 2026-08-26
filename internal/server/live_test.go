@@ -79,7 +79,7 @@ func TestLiveКаналЖивИНазываетКонфигурацию(t *testi
 		t.Fatalf("проба не подтвердила канал: %s", out)
 	}
 
-	out, isErr = call(t, cs, ctx, "base_info", nil)
+	out, isErr = call(t, cs, ctx, "base_info", map[string]any{"base": "ut11"})
 	if isErr {
 		t.Fatalf("паспорт базы не получен: %s", out)
 	}
@@ -93,12 +93,12 @@ func TestLiveКаналЖивИНазываетКонфигурацию(t *testi
 func TestLiveСоставКонфигурацииИСтруктураОбъекта(t *testing.T) {
 	cs, ctx := liveSession(t)
 
-	out, isErr := call(t, cs, ctx, "metadata", nil)
+	out, isErr := call(t, cs, ctx, "metadata", map[string]any{"base": "ut11"})
 	if isErr || !strings.Contains(out, "Справочники") {
 		t.Fatalf("сводка метаданных не получена: %s", out)
 	}
 
-	out, isErr = call(t, cs, ctx, "object", map[string]any{
+	out, isErr = call(t, cs, ctx, "object", map[string]any{"base": "ut11",
 		"object_type": "Catalog", "object_name": "Номенклатура",
 	})
 	if isErr {
@@ -113,11 +113,11 @@ func TestLiveСоставКонфигурацииИСтруктураОбъек�
 func TestLiveСчётСходитсяСЗапросом(t *testing.T) {
 	cs, ctx := liveSession(t)
 
-	viaCount, isErr := call(t, cs, ctx, "count", map[string]any{"table": "Справочник.Номенклатура"})
+	viaCount, isErr := call(t, cs, ctx, "count", map[string]any{"base": "ut11", "table": "Справочник.Номенклатура"})
 	if isErr {
 		t.Fatalf("счёт не выполнен: %s", viaCount)
 	}
-	viaQuery, isErr := call(t, cs, ctx, "query", map[string]any{
+	viaQuery, isErr := call(t, cs, ctx, "query", map[string]any{"base": "ut11",
 		"query": "ВЫБРАТЬ КОЛИЧЕСТВО(*) КАК Всего ИЗ Справочник.Номенклатура",
 	})
 	if isErr {
@@ -133,7 +133,7 @@ func TestLiveСчётСходитсяСЗапросом(t *testing.T) {
 func TestLiveЗаписьОтклоняется(t *testing.T) {
 	cs, ctx := liveSession(t)
 
-	out, isErr := call(t, cs, ctx, "query", map[string]any{
+	out, isErr := call(t, cs, ctx, "query", map[string]any{"base": "ut11",
 		"query": "УДАЛИТЬ ИЗ Справочник.Номенклатура",
 	})
 	if !isErr {
@@ -147,7 +147,7 @@ func TestLiveЗаписьОтклоняется(t *testing.T) {
 func TestLiveПустойРезультатНеПутаетсяСОтказом(t *testing.T) {
 	cs, ctx := liveSession(t)
 
-	out, isErr := call(t, cs, ctx, "query", map[string]any{
+	out, isErr := call(t, cs, ctx, "query", map[string]any{"base": "ut11",
 		"query":      "ВЫБРАТЬ Ссылка КАК Ссылка ИЗ Справочник.Номенклатура ГДЕ Наименование = &Имя",
 		"parameters": map[string]any{"Имя": "такой номенклатуры заведомо нет"},
 	})
@@ -162,7 +162,7 @@ func TestLiveПустойРезультатНеПутаетсяСОтказом(
 func TestLiveИтогиРегистра(t *testing.T) {
 	cs, ctx := liveSession(t)
 
-	out, isErr := call(t, cs, ctx, "register", map[string]any{
+	out, isErr := call(t, cs, ctx, "register", map[string]any{"base": "ut11",
 		"register": "ТоварыНаСкладах", "kind": "Остатки",
 		"dimensions": []string{"Склад"}, "resources": []string{"ВНаличииОстаток"},
 	})
@@ -174,7 +174,7 @@ func TestLiveИтогиРегистра(t *testing.T) {
 	}
 
 	// Без ресурсов сервер обязан не гадать, а сказать, где взять имена.
-	out, isErr = call(t, cs, ctx, "register", map[string]any{"register": "ТоварыНаСкладах"})
+	out, isErr = call(t, cs, ctx, "register", map[string]any{"base": "ut11", "register": "ТоварыНаСкладах"})
 	if !isErr {
 		t.Fatalf("вызов без resources обязан быть отказом: %s", out)
 	}

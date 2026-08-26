@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
@@ -14,7 +15,7 @@ import (
 // ── Паспорт базы ──────────────────────────────────────────────────────────────
 
 type BaseInfoInput struct {
-	Base string `json:"base,omitempty" jsonschema:"Имя базы 1С из реестра (см. инструмент bases). Опущено — база по умолчанию"`
+	Base string `json:"base" jsonschema:"Имя базы 1С из реестра. Обязательно; перечень — bases с action=list"`
 }
 
 func BaseInfoTool() *mcp.Tool {
@@ -58,7 +59,7 @@ func (s *Set) BaseInfo(ctx context.Context, _ *mcp.CallToolRequest, in BaseInfoI
 // ── Состав конфигурации ───────────────────────────────────────────────────────
 
 type MetadataInput struct {
-	Base   string `json:"base,omitempty" jsonschema:"Имя базы 1С из реестра. Опущено — база по умолчанию"`
+	Base   string `json:"base" jsonschema:"Имя базы 1С из реестра. Обязательно; перечень — bases с action=list"`
 	Filter string `json:"filter,omitempty" jsonschema:"Категория метаданных: Справочники, Документы, Перечисления, РегистрыСведений, РегистрыНакопления и др. Без фильтра приходит сводка по категориям"`
 }
 
@@ -127,7 +128,7 @@ func (s *Set) Metadata(ctx context.Context, _ *mcp.CallToolRequest, in MetadataI
 // ── Структура объекта ─────────────────────────────────────────────────────────
 
 type ObjectInput struct {
-	Base       string `json:"base,omitempty" jsonschema:"Имя базы 1С из реестра. Опущено — база по умолчанию"`
+	Base       string `json:"base" jsonschema:"Имя базы 1С из реестра. Обязательно; перечень — bases с action=list"`
 	ObjectType string `json:"object_type" jsonschema:"Тип объекта: Catalog, Document, Enum, InformationRegister, AccumulationRegister, AccountingRegister, CalculationRegister, ChartOfAccounts, ChartOfCharacteristicTypes, ChartOfCalculationTypes, ExchangePlan, BusinessProcess, Task, Constant, DataProcessor, Report, DefinedType, Subsystem. Соответствие категориям metadata: Справочники→Catalog, Документы→Document, Перечисления→Enum, РегистрыСведений→InformationRegister, РегистрыНакопления→AccumulationRegister, РегистрыБухгалтерии→AccountingRegister, Обработки→DataProcessor, Отчеты→Report, Подсистемы→Subsystem"`
 	ObjectName string `json:"object_name" jsonschema:"Имя объекта метаданных, например Номенклатура"`
 }
@@ -170,7 +171,7 @@ type objectReply struct {
 		ПланСчетов      string   `json:"планСчетов"`
 		МаксСубконто    int      `json:"максСубконто"`
 	} `json:"особенностиРегистраБухгалтерии"`
-	Реквизиты []field `json:"реквизиты"`
+	Реквизиты      []field `json:"реквизиты"`
 	Измерения      []field `json:"измерения"`
 	Ресурсы        []field `json:"ресурсы"`
 	ТабличныеЧасти []struct {
@@ -208,7 +209,7 @@ func (s *Set) Object(ctx context.Context, _ *mcp.CallToolRequest, in ObjectInput
 
 	var reply objectReply
 	if err := client.Ask(ctx, "object", query, &reply); err != nil {
-		return nil, nil, err
+		return nil, nil, hintNotFound(err)
 	}
 
 	var b strings.Builder
@@ -293,4 +294,29 @@ func writeFields(b *strings.Builder, title string, fields []field, split bool) {
 		}
 		fmt.Fprintf(b, "  %-40s %s\n", name, f.Тип)
 	}
+}
+
+// hintNotFound добавляет отказу «объект не найден» ход, которым его надо закрывать.
+//
+// Заведено по случаю 26.08.2026: отказ прочитался как факт о 1С вообще, и модель принялась
+// достраивать имя документа по образцу — «может, он называется иначе». Отказ теперь называет
+// базу сам (refusal.Error.Base), а здесь дописывается, куда идти вместо подбора имён.
+//
+// Опрашивать соседние базы — «а нет ли объекта там» — сознательно НЕ делаем. Соседняя база
+// это другая конфигурация и, как правило, другая организация: подсказка звала бы за чужими
+// данными, а отчёт по ним вышел бы складным и неверным по смыслу. Плюс цена: по HTTP-запросу
+// на базу с полным таймаутом, и всё это на пути отказа, который обязан быть быстрым.
+func hintNotFound(err error) error {
+	var ref *refusal.Error
+	if !errors.As(err, &ref) || ref.Kind != refusal.BaseError ||
+		!strings.Contains(ref.What, "не найден") {
+		return err
+	}
+	ref.Hints = append(ref.Hints,
+		"это отказ по НАЗВАННОЙ базе, а не про 1С вообще: в другой конфигурации объект "+
+			"может называться иначе или отсутствовать",
+		"перечень объектов категории — metadata с filter; подбирать имя по образцу нельзя",
+		"если объект из другой конфигурации — назовите нужную базу параметром base "+
+			"(перечень: bases с action=list)")
+	return err
 }

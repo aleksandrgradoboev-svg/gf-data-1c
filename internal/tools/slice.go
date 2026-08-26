@@ -12,7 +12,7 @@ import (
 // ── Срез регистра сведений ────────────────────────────────────────────────────
 
 type SliceInput struct {
-	Base       string         `json:"base,omitempty" jsonschema:"Имя базы 1С из реестра. Опущено — база по умолчанию"`
+	Base       string         `json:"base" jsonschema:"Имя базы 1С из реестра. Обязательно; перечень — bases с action=list"`
 	Register   string         `json:"register" jsonschema:"Имя регистра сведений без префикса, например ЦеныНоменклатуры"`
 	Kind       string         `json:"kind,omitempty" jsonschema:"СрезПоследних (умолчание) или СрезПервых"`
 	Period     string         `json:"period,omitempty" jsonschema:"Дата среза, например 2026-06-30. Пусто — на текущий момент"`
@@ -67,7 +67,7 @@ func (s *Set) Slice(ctx context.Context, _ *mcp.CallToolRequest, in SliceInput) 
 // ── Итоги по счетам ───────────────────────────────────────────────────────────
 
 type AccountsInput struct {
-	Base        string         `json:"base,omitempty" jsonschema:"Имя базы 1С из реестра. Опущено — база по умолчанию"`
+	Base        string         `json:"base" jsonschema:"Имя базы 1С из реестра. Обязательно; перечень — bases с action=list"`
 	Account     string         `json:"account" jsonschema:"Код счёта, например 41 или 62.01"`
 	Kind        string         `json:"kind,omitempty" jsonschema:"Остатки (умолчание), Обороты или ОстаткиИОбороты"`
 	Period      string         `json:"period,omitempty" jsonschema:"Дата остатков для kind=Остатки. Пусто — на текущий момент"`
