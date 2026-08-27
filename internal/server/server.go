@@ -35,6 +35,8 @@ func New(opts Options) *mcp.Server {
 	mcp.AddTool(srv, tools.MetadataTool(), set.Metadata)
 	mcp.AddTool(srv, tools.ObjectTool(), set.Object)
 	mcp.AddTool(srv, tools.QueryCheckTool(), set.QueryCheck)
+	mcp.AddTool(srv, tools.QueryParseTool(), set.QueryParse)
+	mcp.AddTool(srv, tools.QueryBuildTool(), set.QueryBuild)
 	mcp.AddTool(srv, tools.QueryTool(), set.Query)
 	mcp.AddTool(srv, tools.CountTool(), set.Count)
 	mcp.AddTool(srv, tools.RegisterTool(), set.Register)

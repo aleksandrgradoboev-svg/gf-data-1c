@@ -81,6 +81,20 @@
       "methods": {
         "Post": "POST"
       }
+    },
+    "QueryParse": {
+      "template": "/parse",
+      "synonym": "Разбор запроса в структуру",
+      "methods": {
+        "Post": "POST"
+      }
+    },
+    "QueryBuild": {
+      "template": "/build",
+      "synonym": "Сборка запроса из структуры",
+      "methods": {
+        "Post": "POST"
+      }
     }
   }
 }
