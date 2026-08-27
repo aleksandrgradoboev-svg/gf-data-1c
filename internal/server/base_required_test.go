@@ -13,6 +13,7 @@ import (
 var dataTools = []string{
 	"base_info", "metadata", "object", "count", "query", "query_check",
 	"register", "slice", "accounts", "eventlog", "export",
+	"query_parse", "query_build",
 }
 
 // TestBaseОбъявленОбязательным проверяет САМУ СХЕМУ, а не поведение обработчика:

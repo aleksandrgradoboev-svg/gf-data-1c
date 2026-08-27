@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/greentech/gt-data-1c/internal/refusal"
@@ -93,12 +94,36 @@ type QueryBuildField struct {
 	Как       string `json:"как,omitempty" jsonschema:"Псевдоним колонки результата"`
 }
 
+// UnmarshalJSON принимает колонку и строкой, и объектом. Строка — самый частый вид
+// («Ссылка», «Номенклатура.Наименование»), и модели пишут её строкой, что бы ни
+// говорило описание: прогон 27.08.2026 в Kilo дал отказ валидации «want object» на
+// каждой попытке. Схема объявляет обе формы (см. QueryBuildTool), а здесь они сходятся.
+func (f *QueryBuildField) UnmarshalJSON(b []byte) error {
+	trimmed := bytes.TrimSpace(b)
+	if len(trimmed) > 0 && trimmed[0] == '"' {
+		var name string
+		if err := json.Unmarshal(trimmed, &name); err != nil {
+			return err
+		}
+		*f = QueryBuildField{Поле: name}
+		return nil
+	}
+	// Псевдоним типа без методов — иначе Unmarshal позвал бы этот же метод по кругу.
+	type plain QueryBuildField
+	var obj plain
+	if err := json.Unmarshal(trimmed, &obj); err != nil {
+		return err
+	}
+	*f = QueryBuildField(obj)
+	return nil
+}
+
 type QueryBuildInput struct {
 	Base             string            `json:"base" jsonschema:"Имя базы 1С из реестра. Обязательно; перечень — bases с action=list"`
 	Источник         string            `json:"источник" jsonschema:"Таблица-источник: Справочник.Номенклатура, Документ.РеализацияТоваровУслуг.Товары, РегистрНакопления.ТоварыНаСкладах.Остатки"`
 	Псевдоним        string            `json:"псевдоним,omitempty" jsonschema:"Псевдоним источника в запросе. По умолчанию — последняя часть имени таблицы"`
 	ПараметрыТаблицы []string          `json:"параметрыТаблицы,omitempty" jsonschema:"Параметры виртуальной таблицы по позициям, как в скобках: для Остатки — [\"&НаДату\", \"Склад = &Склад\"]. Пустая строка пропускает позицию"`
-	Поля             []QueryBuildField `json:"поля" jsonschema:"Колонки результата. Строку поля можно передать объектом с одним заполненным «поле»"`
+	Поля             []QueryBuildField `json:"поля" jsonschema:"Колонки результата. Каждая — либо строка с именем поля («Ссылка», «Номенклатура.Наименование»), либо объект {поле, функция, выражение, как} для агрегата или псевдонима"`
 	Отбор            []string          `json:"отбор,omitempty" jsonschema:"Условия ГДЕ, по одному на элемент: Ссылка.Проведен, Дата МЕЖДУ &Начало И &Конец. Соединяются через И"`
 	Группировка      []string          `json:"группировка,omitempty" jsonschema:"Поля СГРУППИРОВАТЬ ПО"`
 	Порядок          []string          `json:"порядок,omitempty" jsonschema:"Поля УПОРЯДОЧИТЬ ПО — псевдонимы колонок результата, не выражения источника"`
@@ -108,7 +133,8 @@ type QueryBuildInput struct {
 
 func QueryBuildTool() *mcp.Tool {
 	return &mcp.Tool{
-		Name: "query_build",
+		Name:        "query_build",
+		InputSchema: queryBuildSchema(),
 		Description: "Собрать текст запроса 1С из структуры — без единой запятой синтаксиса. Ты называешь " +
 			"источник, поля, отбор и группировку; текст пишет платформа 1С, и она же проверяет каждое имя " +
 			"в момент добавления: несуществующая таблица или поле отвергаются сразу, с указанием виновного. " +
@@ -118,6 +144,30 @@ func QueryBuildTool() *mcp.Tool {
 			"инструментом query; сложные запросы с соединениями пиши текстом сразу — этот инструмент " +
 			"собирает один оператор по одному источнику.",
 	}
+}
+
+// queryBuildSchema — схема ввода, выведенная из структуры и поправленная в одном месте:
+// элемент «поля» допускает строку ИЛИ объект. Выведенная схема знает только объект, и SDK
+// отвергал строку до вызова обработчика — модель получала «want object» и начинала
+// сочинять текст запроса руками, ради чего построитель и заведён.
+func queryBuildSchema() *jsonschema.Schema {
+	s, err := jsonschema.For[QueryBuildInput](nil)
+	if err != nil {
+		panic(fmt.Errorf("query_build: схема ввода не выведена: %w", err))
+	}
+	fields, ok := s.Properties["поля"]
+	if !ok || fields.Items == nil {
+		panic("query_build: в схеме нет массива «поля»")
+	}
+	object := fields.Items
+	object.Description = "Колонка с агрегатом, выражением или псевдонимом"
+	fields.Items = &jsonschema.Schema{
+		AnyOf: []*jsonschema.Schema{
+			{Type: "string", Description: "Имя поля источника, можно через точку: Ссылка, Номенклатура.Наименование"},
+			object,
+		},
+	}
+	return s
 }
 
 type buildReply struct {
