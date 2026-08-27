@@ -6,7 +6,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/greentech/gt-data-1c/internal/refusal"
+	"github.com/aleksandrgradoboev-svg/gt-data-1c/internal/refusal"
 )
 
 // Envelope — конверт ответа расширения. Поле ok есть всегда, поэтому отказ базы

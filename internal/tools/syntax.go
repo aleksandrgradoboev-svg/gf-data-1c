@@ -30,7 +30,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	_ "modernc.org/sqlite"
 
-	"github.com/greentech/gt-data-1c/internal/refusal"
+	"github.com/aleksandrgradoboev-svg/gt-data-1c/internal/refusal"
 )
 
 // SyntaxInput — вход инструмента.

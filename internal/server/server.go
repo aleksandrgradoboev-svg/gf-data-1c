@@ -6,7 +6,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/greentech/gt-data-1c/internal/tools"
+	"github.com/aleksandrgradoboev-svg/gt-data-1c/internal/tools"
 )
 
 // Version — версия продукта. Расширение в базе сверяет её со своей.

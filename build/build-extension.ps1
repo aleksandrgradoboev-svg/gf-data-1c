@@ -43,8 +43,8 @@ if (Test-Path $OutputDir) { Remove-Item -Recurse -Force $OutputDir }
 
 Write-Host "[1/6] Каркас расширения (режим совместимости $CompatibilityMode)"
 & powershell.exe -NoProfile -File (Join-Path $skills 'cfe-init\scripts\cfe-init.ps1') `
-    -Name 'GTData' -Synonym 'Доступ к данным (Гринтех)' -NamePrefix 'GT_' `
-    -Purpose AddOn -Version '0.1.0' -Vendor 'ООО Гринтех' `
+    -Name 'GTData' -Synonym 'Доступ к данным' -NamePrefix 'GT_' `
+    -Purpose AddOn -Version '0.1.0' -Vendor 'Aleksandr Gradoboev' `
     -CompatibilityMode $CompatibilityMode -OutputDir $OutputDir | Out-Null
 
 Write-Host "[2/6] Отвязка от языка расширяемой конфигурации"

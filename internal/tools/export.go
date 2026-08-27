@@ -12,7 +12,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/greentech/gt-data-1c/internal/refusal"
+	"github.com/aleksandrgradoboev-svg/gt-data-1c/internal/refusal"
 )
 
 // pageSize — размер порции при выгрузке. Совпадает с потолком инструментов: больше

@@ -23,7 +23,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/greentech/gt-data-1c/internal/refusal"
+	"github.com/aleksandrgradoboev-svg/gt-data-1c/internal/refusal"
 )
 
 // Поля виртуальных таблиц: то, чего нет в метаданных конфигурации, потому что их составляет

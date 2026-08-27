@@ -12,7 +12,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/greentech/gt-data-1c/internal/server"
+	"github.com/aleksandrgradoboev-svg/gt-data-1c/internal/server"
 )
 
 // Сквозной прогон против живого стенда.

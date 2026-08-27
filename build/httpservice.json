@@ -2,7 +2,7 @@
   "type": "HTTPService",
   "name": "GT_Data",
   "rootURL": "gt-data",
-  "synonym": "Доступ к данным (Гринтех)",
+  "synonym": "Доступ к данным",
   "reuseSessions": "DontUse",
   "urlTemplates": {
     "Version": {
