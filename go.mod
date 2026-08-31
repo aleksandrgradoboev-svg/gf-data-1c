@@ -1,4 +1,4 @@
-module github.com/aleksandrgradoboev-svg/gt-data-1c
+module github.com/greentech/gt-data-1c
 
 go 1.25.0
 

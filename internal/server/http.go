@@ -10,7 +10,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/aleksandrgradoboev-svg/gt-data-1c/internal/journal"
+	"github.com/greentech/gt-data-1c/internal/journal"
 )
 
 // HTTPOptions — параметры сетевого режима.

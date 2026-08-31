@@ -5,9 +5,9 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/aleksandrgradoboev-svg/gt-data-1c/internal/channel"
-	"github.com/aleksandrgradoboev-svg/gt-data-1c/internal/refusal"
-	"github.com/aleksandrgradoboev-svg/gt-data-1c/internal/registry"
+	"github.com/greentech/gt-data-1c/internal/channel"
+	"github.com/greentech/gt-data-1c/internal/refusal"
+	"github.com/greentech/gt-data-1c/internal/registry"
 )
 
 // Set — набор инструментов, разделяющих общее состояние: путь реестра и таймаут канала.
@@ -19,6 +19,12 @@ type Set struct {
 	// Version — версия сервера. Нужна пробе: расширение старше сервера отвечает не
 	// ошибкой, а пустотой в новых методах, и это неотличимо от отсутствия данных.
 	Version string
+	// AllowRawQuery отключает гейт построителя (gate.go): query выполняет любой текст, а
+	// query_check не запирается после отказа. Только для тестов сервера, которые проверяют
+	// сам язык и канал; в поставке гейт включён всегда — его нельзя выключить вызовом.
+	AllowRawQuery bool
+	// gate — состояние сессии для query_check / query / query_build: см. gate.go.
+	gate queryGate
 }
 
 func (s *Set) registry() (*registry.Registry, error) {

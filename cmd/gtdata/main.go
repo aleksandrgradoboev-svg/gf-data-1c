@@ -13,11 +13,11 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/aleksandrgradoboev-svg/gt-data-1c/internal/channel"
-	"github.com/aleksandrgradoboev-svg/gt-data-1c/internal/installer"
-	"github.com/aleksandrgradoboev-svg/gt-data-1c/internal/journal"
-	"github.com/aleksandrgradoboev-svg/gt-data-1c/internal/registry"
-	"github.com/aleksandrgradoboev-svg/gt-data-1c/internal/server"
+	"github.com/greentech/gt-data-1c/internal/channel"
+	"github.com/greentech/gt-data-1c/internal/installer"
+	"github.com/greentech/gt-data-1c/internal/journal"
+	"github.com/greentech/gt-data-1c/internal/registry"
+	"github.com/greentech/gt-data-1c/internal/server"
 )
 
 func main() {

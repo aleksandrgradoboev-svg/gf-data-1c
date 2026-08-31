@@ -30,13 +30,17 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	_ "modernc.org/sqlite"
 
-	"github.com/aleksandrgradoboev-svg/gt-data-1c/internal/refusal"
+	"github.com/greentech/gt-data-1c/internal/refusal"
 )
 
 // SyntaxInput — вход инструмента.
 type SyntaxInput struct {
 	Query string `json:"query" jsonschema:"Оператор, функция, таблица или тема: ПОДОБНО, ИТОГИ, ОстаткиИОбороты, РазвернутыйОстаток"`
 	Full  bool   `json:"full,omitempty" jsonschema:"Отдать страницу целиком, а не выдержку"`
+	// Members просит перечень членов ТИПА вместо страницы про него. Отдельным полем, а не
+	// догадкой по виду вопроса: «ТаблицаЗначений» — законный вопрос и про назначение объекта,
+	// и про список методов, и решать за спрашивающего, чего он хотел, значит ошибаться молча.
+	Members bool `json:"members,omitempty" jsonschema:"Для типа платформы отдать перечень его методов, свойств, событий и конструкторов вместо обзорной страницы"`
 }
 
 // SyntaxTool — объявление инструмента.
@@ -47,7 +51,9 @@ func SyntaxTool() *mcp.Tool {
 			"шаблоны ПОДОБНО) и ТАБЛИЦЫ ПЛАТФОРМЫ (виртуальные таблицы регистров, их поля и параметры). " +
 			"Отвечает страницей из справки вендора для установленной версии платформы, а не пересказом. " +
 			"Спрашивай ДО того, как сочинять конструкцию: выдуманный оператор даёт либо отказ, либо " +
-			"неверный отбор. Не про данные базы (это query) и не про объекты конфигурации (это metadata и object).",
+			"неверный отбор. Не про данные базы (это query) и не про объекты конфигурации (это metadata и object). " +
+			"Вопрос «что умеет тип» — members=true: перечень методов и свойств одним ответом, " +
+			"вместо страницы про назначение объекта.",
 	}
 }
 
@@ -150,6 +156,41 @@ func (s *Set) Syntax(_ context.Context, _ *mcp.CallToolRequest, in SyntaxInput) 
 	}
 	defer db.Close()
 
+	if in.Members {
+		return membersAnswer(db, needle)
+	}
+
+	// Текст запроса в поле query — не тема справки. Нечёткий поиск ответил бы страницей по
+	// самому общему слову; вместо этого называем конструкции, которые в тексте узнаны, и
+	// просим спросить их по одной. Проверка текста и его сборка — другие инструменты.
+	if looksLikeQueryText(needle) {
+		found := getHelpIndex(db).constructionsIn(needle)
+		hints := []string{
+			"спрашивайте по одной конструкции: ПОДОБНО, НАЧАЛОПЕРИОДА, СГРУППИРОВАТЬ, ОстаткиИОбороты",
+			"правилен ли текст — инструмент query_check; собрать текст без ошибок — query_build",
+		}
+		if len(found) > 0 {
+			hints = append([]string{"в тексте узнаны конструкции со своей страницей: " + strings.Join(found, ", ")}, hints...)
+		}
+		return nil, nil, refusal.New(refusal.BadRequest,
+			"в поле query — текст запроса, а не имя конструкции",
+			"справка отвечает на имя оператора, функции или таблицы; текст запроса она не разбирает",
+			hints...)
+	}
+
+	// Спросили про ТИП платформы, а не про язык запросов. Область поиска этого инструмента
+	// сужена до языка запросов и таблиц платформы (см. queryScope), поэтому страницы типа
+	// здесь нет — но и молчать нельзя: без адреса вопрос уйдёт в перебор названий, а
+	// ближайшая по буквам страница из оставшихся ответит правдоподобно и не по делу
+	// («ТаблицаЗначений» → «Субконто регистра бухгалтерии»).
+	if _, isType := getMemberIndex(db).membersOf(needle); isType {
+		return nil, nil, refusal.New(refusal.BadRequest,
+			fmt.Sprintf("%q — тип встроенного языка, а не конструкция языка запросов", needle),
+			"перечень его методов и свойств — тот же вызов с members: true",
+			"этот инструмент отвечает про язык запросов и таблицы платформы",
+			"данные базы читают query и count, объекты конфигурации — metadata и object")
+	}
+
 	best, rest := searchHelp(db, needle)
 	if best == nil {
 		// Отказ при существующей странице — то, что и порождает перебор названий: модель
@@ -165,9 +206,11 @@ func (s *Set) Syntax(_ context.Context, _ *mcp.CallToolRequest, in SyntaxInput) 
 				"точного совпадения нет; термин встречается на страницах: "+strings.Join(near, " · "))
 		}
 		var total int
-		_ = db.QueryRow(`SELECT COUNT(*) FROM pages WHERE config='platform'`).Scan(&total)
+		// Считаем по той же области, что и ищем: сказать «страниц 52290», обыскав 1611,
+		// значит соврать о полноте поиска — и подтолкнуть к перебору названий.
+		_ = db.QueryRow(`SELECT COUNT(*) FROM pages WHERE ` + queryScope).Scan(&total)
 		details = append(details,
-			fmt.Sprintf("страниц платформы в базе: %d", total),
+			fmt.Sprintf("страниц по языку запросов и таблицам платформы: %d", total),
 			"назовите как пишется в коде: ОстаткиИОбороты, ПОДОБНО, РазвернутыйОстаток",
 			"английское имя тоже работает: BalanceAndTurnovers, LIKE",
 			"справка не собрана — python tools/kb/hbk-extract.py --hbk <платформа>/bin/shcntx_ru.hbk --to-kb kb/1c-help.db")
@@ -176,9 +219,7 @@ func (s *Set) Syntax(_ context.Context, _ *mcp.CallToolRequest, in SyntaxInput) 
 			details[0], details[1:]...)
 	}
 
-	var body, version string
-	_ = db.QueryRow(`SELECT text, config_version FROM pages WHERE object = ? AND config='platform' LIMIT 1`,
-		best.Object).Scan(&body, &version)
+	body, version := pageBody(db, *best)
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "Справка платформы %s — %s\n%s\n\n", version, best.Title, best.Path)

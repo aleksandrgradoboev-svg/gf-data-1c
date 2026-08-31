@@ -11,7 +11,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/aleksandrgradoboev-svg/gt-data-1c/internal/server"
+	"github.com/greentech/gt-data-1c/internal/server"
 )
 
 // connect поднимает сервер на временном реестре и возвращает клиентскую сессию.
@@ -20,7 +20,7 @@ func connect(t *testing.T) (*mcp.ClientSession, context.Context) {
 	ctx := context.Background()
 	regPath := filepath.Join(t.TempDir(), "bases.json")
 
-	srv := server.New(server.Options{RegistryPath: regPath, Timeout: 3 * time.Second})
+	srv := server.New(server.Options{RegistryPath: regPath, Timeout: 3 * time.Second, AllowRawQuery: true})
 	clientTransport, serverTransport := mcp.NewInMemoryTransports()
 	if _, err := srv.Connect(ctx, serverTransport, nil); err != nil {
 		t.Fatalf("сервер не поднялся: %v", err)

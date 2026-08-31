@@ -10,7 +10,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/aleksandrgradoboev-svg/gt-data-1c/internal/refusal"
+	"github.com/greentech/gt-data-1c/internal/refusal"
 )
 
 // ── Проверка запроса ──────────────────────────────────────────────────────────
@@ -41,13 +41,40 @@ func (s *Set) QueryCheck(ctx context.Context, _ *mcp.CallToolRequest, in QueryCh
 	if err != nil {
 		return nil, nil, err
 	}
+	// Гейт: после отказа проверки следующий текст не разбирается, пока не позван
+	// построитель. Механизм, а не правило — см. gate.go. Стоит ПОСЛЕ проверки базы:
+	// отказ «база не названа» важнее и не должен подменяться.
+	if !s.AllowRawQuery {
+		if ok, hint := s.gate.checkAllowed(); !ok {
+			return nil, nil, refusal.New(refusal.BadRequest, "проверка текста закрыта после отказа", hint)
+		}
+	}
 	var reply checkReply
 	if err := client.Tell(ctx, "check", map[string]any{"query": in.Query}, &reply); err != nil {
+		s.gate.onCheckRefused(in.Query)
 		// Проверка запроса — то место, где подсказка нужнее всего: сюда приходят с черновиком.
-		return nil, nil, EnrichQueryRefusal(err, in.Query, nil)
+		// К отказу платформы дописан ход: следующий текст не примут, идти в построитель.
+		enriched := EnrichQueryRefusal(err, in.Query, nil)
+		if e, ok := enriched.(*refusal.Error); ok {
+			e.Hints = append(e.Hints, builderHint(sourceOf(in.Query)))
+		}
+		return nil, nil, enriched
 	}
-	return text(fmt.Sprintf("Запрос разобран. Колонки (%d): %s",
-		len(reply.Колонки), strings.Join(reply.Колонки, ", "))), nil, nil
+	s.gate.onCheckPassed(in.Query)
+	// Разбор — не пропуск: выполнить можно только текст построителя (gate.go).
+	out := fmt.Sprintf("Запрос разобран. Колонки (%d): %s",
+		len(reply.Колонки), strings.Join(reply.Колонки, ", "))
+	out += "\nВыполнить этот текст query нельзя — выполняется только собранный query_build. Проверка нужна для диагностики синтаксиса."
+	// Разбор проверяет синтаксис, а не смысл. Конструкции, которые выполняются и молча
+	// отдают не то, называются здесь: другого места у них нет — отказа платформа не даёт,
+	// а пустая выборка неотличима от честного «данных нет».
+	if traps := QuietTraps(in.Query); len(traps) > 0 {
+		out += "\n\nРазбор прошёл, но запрос содержит то, о чём платформа не предупредит:"
+		for _, t := range traps {
+			out += "\n  ⚠ " + t
+		}
+	}
+	return text(out), nil, nil
 }
 
 // ── Запрос ────────────────────────────────────────────────────────────────────
@@ -98,6 +125,15 @@ func (s *Set) Query(ctx context.Context, _ *mcp.CallToolRequest, in QueryInput) 
 	client, err := s.channelFor(in.Base)
 	if err != nil {
 		return nil, nil, err
+	}
+	// Выполняется только текст, который в этой сессии собрал query_build. Написанный
+	// руками не выполняется вовсе — см. gate.go. После проверки базы: см. QueryCheck.
+	if !s.AllowRawQuery && !s.gate.isApproved(in.Query) {
+		return nil, nil, refusal.New(refusal.BadRequest, "текст запроса не собран построителем",
+			"выполняется только текст, который в этой сессии вернул query_build — дословно; "+
+				"написанный руками текст не выполняется, даже разобранный query_check",
+			"соберите запрос query_build (источник, поля, отбор, группировка, порядок) и выполните его текст как есть",
+			"соединения и пакеты построитель не собирает — такой вопрос возвращается как «не собирается», без обходного текста")
 	}
 
 	payload := map[string]any{"query": in.Query}

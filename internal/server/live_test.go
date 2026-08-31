@@ -12,7 +12,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/aleksandrgradoboev-svg/gt-data-1c/internal/server"
+	"github.com/greentech/gt-data-1c/internal/server"
 )
 
 // Сквозной прогон против живого стенда.
@@ -26,6 +26,12 @@ const (
 )
 
 func liveSession(t *testing.T) (*mcp.ClientSession, context.Context) {
+	t.Helper()
+	return liveSessionWith(t, true)
+}
+
+// liveSessionWith — та же живая сессия; allowRaw=false оставляет гейт построителя включённым.
+func liveSessionWith(t *testing.T, allowRaw bool) (*mcp.ClientSession, context.Context) {
 	t.Helper()
 	if os.Getenv("GT_SKIP_LIVE") != "" {
 		t.Skip("живой прогон отключён переменной GT_SKIP_LIVE")
@@ -41,7 +47,9 @@ func liveSession(t *testing.T) (*mcp.ClientSession, context.Context) {
 
 	ctx := context.Background()
 	regPath := filepath.Join(t.TempDir(), "bases.json")
-	srv := server.New(server.Options{RegistryPath: regPath, Timeout: 60 * time.Second})
+	// AllowRawQuery: живые тесты проверяют язык и канал текстом руками; гейт построителя
+	// проверяется отдельно (gate_live_test.go) на сервере без этого флага.
+	srv := server.New(server.Options{RegistryPath: regPath, Timeout: 60 * time.Second, AllowRawQuery: allowRaw})
 
 	clientTransport, serverTransport := mcp.NewInMemoryTransports()
 	if _, err := srv.Connect(ctx, serverTransport, nil); err != nil {

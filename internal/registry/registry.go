@@ -23,8 +23,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/aleksandrgradoboev-svg/gt-data-1c/internal/refusal"
-	"github.com/aleksandrgradoboev-svg/gt-data-1c/internal/secret"
+	"github.com/greentech/gt-data-1c/internal/refusal"
+	"github.com/greentech/gt-data-1c/internal/secret"
 )
 
 // Base — одна информационная база.

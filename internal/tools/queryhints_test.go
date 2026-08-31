@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aleksandrgradoboev-svg/gt-data-1c/internal/refusal"
+	"github.com/greentech/gt-data-1c/internal/refusal"
 )
 
 func baseErr(what, why string) error {

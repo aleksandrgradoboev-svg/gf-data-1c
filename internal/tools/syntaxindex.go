@@ -57,8 +57,10 @@ type tocEntry struct {
 type helpIndex struct {
 	pages   map[string]helpPage   // имя страницы (нижний регистр) → страница
 	byPath  map[string]string     // путь → имя страницы
-	toc     map[string][]helpPage  // нормализованное имя темы → страницы
-	tocHead map[string][]tocEntry  // первое слово темы → страницы (с именем темы)
+	toc     map[string][]helpPage // нормализованное имя темы → страницы
+	tocHead map[string][]tocEntry // первое слово темы → страницы (с именем темы)
+	alias   map[string]string     // ключевое слово → его вариант на другом языке
+	inText  map[string]helpPage   // ключевое слово → тема, в тексте которой оно описано
 }
 
 var (
@@ -75,15 +77,33 @@ func getHelpIndex(db *sql.DB) *helpIndex {
 	return indexData
 }
 
+// queryScope — SQL-условие «страница относится к запросам».
+//
+// Инструмент syntax отвечает про ЯЗЫК ЗАПРОСОВ и ТАБЛИЦЫ ПЛАТФОРМЫ, а справка вендора
+// содержит и весь встроенный язык: на 132 страницы shquery приходится 52 158 страниц
+// shcntx (объектная модель) — 1 к 395. Полнотекстовый поиск по такому составу отвечает
+// про что угодно: замер 31.08.2026 показал, как вопрос «SGROUP BY функция выражение»
+// вернул страницу про ВыражениеXPath, после чего модель ушла сочинять запрос дальше.
+//
+// Поэтому в поиске видны только shquery (язык запросов целиком) и раздел /tables/ книги
+// shcntx — виртуальные таблицы регистров с их полями и параметрами. Прочая объектная
+// модель не удалена из базы (она общая, её читает ещё и скилл kb-1c) — она просто не
+// участвует в поиске этого инструмента. Вопрос «что умеет тип» идёт мимо этого условия:
+// у него свой путь, members=true.
+const queryScope = `config='platform' AND title NOT LIKE '{%' ` +
+	`AND (category='shquery' OR path LIKE '%/tables/%')`
+
 func buildHelpIndex(db *sql.DB) *helpIndex {
 	ix := &helpIndex{
 		pages:   map[string]helpPage{},
 		byPath:  map[string]string{},
 		toc:     map[string][]helpPage{},
 		tocHead: map[string][]tocEntry{},
+		alias:   map[string]string{},
+		inText:  map[string]helpPage{},
 	}
 	rows, err := db.Query(`SELECT title, object, path FROM pages
-	                        WHERE config='platform' AND title NOT LIKE '{%'`)
+	                        WHERE ` + queryScope)
 	if err != nil {
 		return ix
 	}
@@ -133,7 +153,211 @@ func buildHelpIndex(db *sql.DB) *helpIndex {
 			}
 		}
 	}
+
+	ix.loadKeywordAliases(db)
+	ix.loadKeywordsInText(db)
 	return ix
+}
+
+// loadKeywordAliases — двуязычие языка запросов, взятое у вендора, а не составленное нами.
+//
+// В оглавлении shquery двуязычных имён нет ВОВСЕ (0 пар из 197) — в отличие от shcntx, где их
+// 24 572. Поэтому английская форма темы языка запросов не находилась ничем: ORDER BY, TOTALS,
+// SELECT уходили в отказ или в чужую страницу объектной модели, хотя русская форма отвечала
+// верно. Таблица соответствий лежит в самой справке — страница «Двуязычное представление
+// ключевых слов»; её и разбираем, вместо того чтобы выписывать пары руками и ошибаться в них.
+//
+// Словарь двусторонний: спрашивают и по-английски, и по-русски.
+func (ix *helpIndex) loadKeywordAliases(db *sql.DB) {
+	var text string
+	if err := db.QueryRow(`SELECT text FROM pages
+	                        WHERE config='platform' AND object='present'`).Scan(&text); err != nil {
+		return
+	}
+	var lines []string
+	for _, l := range strings.Split(text, "\n") {
+		if l = strings.TrimSpace(l); l != "" {
+			lines = append(lines, l)
+		}
+	}
+	// Таблица идёт парами строк «русское / английское». Шапка отсекается сама: пара
+	// засчитывается, только когда первая строка целиком кириллическая заглавная, а вторая —
+	// латинская заглавная. Заголовок «Английское / написание» этому не отвечает.
+	for i := 0; i+1 < len(lines); i++ {
+		ru, en := lines[i], lines[i+1]
+		if !isUpperRU(ru) || !isUpperEN(en) {
+			continue
+		}
+		ix.addAlias(ru, en)
+		// Составные конструкции записаны через многоточие: «ИТОГИ … ПО» / «TOTALS … BY».
+		// Спрашивают их обычно головным словом («ИТОГИ», «TOTALS»), поэтому связь заводится
+		// и по голове — иначе английская форма самой частой конструкции не находится.
+		if hru, hen := headWord(ru), headWord(en); hru != ru || hen != en {
+			ix.addAlias(hru, hen)
+		}
+		i++ // пара разобрана целиком
+	}
+}
+
+// loadKeywordsInText — слова, у которых СВОЕЙ страницы в справке нет.
+//
+// Замер двуязычия показал: из 90 ключевых слов языка запросов 10 не находятся ничем — ТОГДА,
+// КОГДА, ИЛИ, ИНАЧЕ, СПЕЦСИМВОЛ, НАБОРАМ, ОБЩИЕ, УНИКАЛЬНО и подобные. Это не дефект поиска:
+// отдельной страницы у них не существует в природе, они описаны ВНУТРИ тем — «ТОГДА» живёт
+// на странице «Операция выбора в языке запросов», «СПЕЦСИМВОЛ» — на странице оператора
+// ПОДОБНО. Верный ответ на такой вопрос — страница темы, а не отказ.
+//
+// Связь выводится из текста, а не из оглавления, поэтому вес у неё ниже вендорского
+// соответствия: это догадка по частоте, пусть и надёжная. Берётся страница языка запросов
+// с наибольшим числом упоминаний слова; страница самой таблицы двуязычия исключается — она
+// упоминает КАЖДОЕ ключевое слово ровно один раз и иначе выигрывала бы у настоящих тем.
+func (ix *helpIndex) loadKeywordsInText(db *sql.DB) {
+	if len(ix.alias) == 0 {
+		return
+	}
+	rows, err := db.Query(`SELECT title, object, path, text FROM pages
+	                        WHERE config='platform' AND category='shquery'
+	                          AND object <> 'present' AND title NOT LIKE '{%'`)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+
+	type best struct {
+		page  helpPage
+		count int
+	}
+	// Слово берётся в этот индекс, ТОЛЬКО если своей темы у него нет. Иначе выводы по частоте
+	// начинают спорить с вендорским оглавлением и проигрывают ему по смыслу: «ДАТА» — тема
+	// в оглавлении, а по числу упоминаний она чаще всего попадает на РАЗНОСТЬДАТ. Проверено
+	// замером: без этого условия двуязычие падает с 99% до 94%.
+	orphan := func(key string) bool {
+		if _, ok := ix.toc[key]; ok {
+			return false
+		}
+		if _, ok := ix.tocHead[key]; ok {
+			return false
+		}
+		_, ok := ix.pages[strings.ToLower(key)]
+		return !ok
+	}
+
+	found := map[string]best{}
+	for rows.Next() {
+		var p helpPage
+		var text string
+		if rows.Scan(&p.Title, &p.Object, &p.Path, &text) != nil {
+			continue
+		}
+		upper := strings.ToUpper(text)
+		for key := range ix.alias {
+			// Ключ уже нормализован — восстанавливать исходное написание не нужно:
+			// в тексте справки ключевые слова набраны заглавными.
+			if len([]rune(key)) < 3 {
+				continue // «В», «И», «ПО» встречаются в любом тексте и ничего не означают
+			}
+			if !orphan(key) {
+				continue
+			}
+			n := countWord(upper, key)
+			if n == 0 {
+				continue
+			}
+			if cur, ok := found[key]; !ok || n > cur.count ||
+				(n == cur.count && p.Object < cur.page.Object) {
+				found[key] = best{page: p, count: n}
+			}
+		}
+	}
+	for key, b := range found {
+		ix.inText[key] = b.page
+	}
+}
+
+// countWord — сколько раз слово встречается как ОТДЕЛЬНОЕ слово. Без границ «ВСЕ» нашлось бы
+// внутри «ВСЕГО», а «ИЛИ» — внутри любого «...ИЛИ».
+func countWord(haystack, word string) int {
+	n, from := 0, 0
+	for {
+		i := strings.Index(haystack[from:], word)
+		if i < 0 {
+			return n
+		}
+		i += from
+		leftOK := i == 0 || !isWordRune(rune(haystack[i-1]))
+		end := i + len(word)
+		rightOK := end >= len(haystack) || !isWordRune(rune(haystack[end]))
+		if leftOK && rightOK {
+			n++
+		}
+		from = i + len(word)
+	}
+}
+
+func isWordRune(r rune) bool {
+	return unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_'
+}
+
+// addAlias заводит двустороннюю связь между вариантами написания. Первое соответствие
+// побеждает: таблица вендора не содержит противоречий, а страховка от них дешевле разбора.
+func (ix *helpIndex) addAlias(a, b string) {
+	ka, kb := normKey(a), normKey(b)
+	if ka == "" || kb == "" || ka == kb {
+		return
+	}
+	if _, seen := ix.alias[kb]; !seen {
+		ix.alias[kb] = a
+	}
+	if _, seen := ix.alias[ka]; !seen {
+		ix.alias[ka] = b
+	}
+}
+
+// headWord — часть конструкции до многоточия: «ИТОГИ … ПО» → «ИТОГИ».
+func headWord(s string) string {
+	if i := strings.IndexRune(s, '…'); i >= 0 {
+		return strings.TrimSpace(s[:i])
+	}
+	return s
+}
+
+// isUpperRU — строка состоит только из заглавной кириллицы (и разделителей).
+func isUpperRU(s string) bool { return isUpperOnly(s, 'А', 'Я') }
+
+// isUpperEN — то же для латиницы.
+func isUpperEN(s string) bool { return isUpperOnly(s, 'A', 'Z') }
+
+func isUpperOnly(s string, lo, hi rune) bool {
+	letters := 0
+	for _, r := range s {
+		switch {
+		case r >= lo && r <= hi, r == 'Ё' && lo == 'А':
+			letters++
+		// Многоточие — часть записи составных конструкций: «ИТОГИ … ПО» / «TOTALS … BY».
+		// Без него пара не опознаётся, и ИТОГИ теряют английскую форму.
+		case r == ' ', r == '.', r == '[', r == ']', r == '…':
+		default:
+			return false
+		}
+	}
+	return letters > 0
+}
+
+// translate дописывает к вариантам вопроса их иноязычные соответствия: они идут последними,
+// потому что перевод дальше от того, что спросили, чем сама формулировка.
+func (ix *helpIndex) translate(variants []string) []string {
+	seen := map[string]bool{}
+	for _, v := range variants {
+		seen[normKey(v)] = true
+	}
+	out := variants
+	for _, v := range variants {
+		if alt, ok := ix.alias[normKey(v)]; ok && !seen[normKey(alt)] {
+			seen[normKey(alt)] = true
+			out = append(out, alt)
+		}
+	}
+	return out
 }
 
 // resolve переводит путь из оглавления в страницу базы.
@@ -461,6 +685,61 @@ func questionKind(query string) string {
 // ── ранжирование ─────────────────────────────────────────────────────────────────────────
 
 // scoredPage — кандидат и его вес.
+// pageBody — текст и версия страницы ПО ПУТИ. Раньше тело бралось «WHERE object = ? LIMIT 1»:
+// под одним именем объекта в базе лежит и настоящая страница, и служебная в скобках
+// (заголовков вида «{…» — 26 648), и LIMIT 1 без ORDER BY отдавал любую из них. Прогон
+// 27.08.2026: на вопрос про «Первые» модель получила {1, {2, {"",1,0,"",""} … вместо текста.
+func pageBody(db *sql.DB, p helpPage) (body, version string) {
+	_ = db.QueryRow(`SELECT text, config_version FROM pages WHERE path = ? LIMIT 1`, p.Path).Scan(&body, &version)
+	if strings.TrimSpace(body) == "" || strings.HasPrefix(strings.TrimSpace(body), "{") {
+		// Путь не нашёлся или сам оказался скобками — берём по объекту, но только страницу
+		// с человеческим текстом.
+		_ = db.QueryRow(`SELECT text, config_version FROM pages
+		                 WHERE object = ? AND config='platform' AND title NOT LIKE '{%' AND text NOT LIKE '{%'
+		                 ORDER BY length(title) LIMIT 1`, p.Object).Scan(&body, &version)
+	}
+	return body, version
+}
+
+// reQueryText — ключевые слова, по которым в поле query узнаётся ТЕКСТ ЗАПРОСА, а не
+// имя конструкции. Текст запроса нечёткий поиск разбирает на слова и отвечает страницей
+// по самому общему из них («выражение» → ВыражениеXPath) — убедительно и мимо.
+var reQueryText = regexp.MustCompile(`(?i)(^|[\s(])(ВЫБРАТЬ|SELECT|ИЗ|FROM|ГДЕ|WHERE|СГРУППИРОВАТЬ|GROUP|УПОРЯДОЧИТЬ|ORDER|СОЕДИНЕНИЕ|JOIN|ПОМЕСТИТЬ|INTO|ОБЪЕДИНИТЬ|UNION|ИТОГИ|TOTALS)([\s(]|$)`)
+
+var reWordTok = regexp.MustCompile(`[A-Za-zА-Яа-яЁё_][A-Za-zА-Яа-яЁё0-9_]*`)
+
+// looksLikeQueryText — два и больше ключевых слова языка запросов, либо одно плюс параметр &Имя.
+func looksLikeQueryText(q string) bool {
+	n := len(reQueryText.FindAllStringIndex(q, -1))
+	return n >= 2 || (n >= 1 && strings.Contains(q, "&"))
+}
+
+// constructionsIn — конструкции из текста запроса, у которых есть своя страница справки:
+// то, что стоит спросить по одной. Ключевые слова и функции пишутся заглавными — по ним
+// и отбор; имена таблиц и полей заглавными не бывают и сюда не попадают.
+func (ix *helpIndex) constructionsIn(text string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, tok := range reWordTok.FindAllString(text, -1) {
+		if len([]rune(tok)) < 3 || !(isUpperRU(tok) || isUpperEN(tok)) {
+			continue
+		}
+		key := normKey(tok)
+		if seen[key] {
+			continue
+		}
+		_, inToc := ix.toc[key]
+		_, inHead := ix.tocHead[key]
+		_, inPages := ix.pages[strings.ToLower(tok)]
+		_, inBody := ix.inText[key]
+		if inToc || inHead || inPages || inBody {
+			seen[key] = true
+			out = append(out, tok)
+		}
+	}
+	return out
+}
+
 type scoredPage struct {
 	Page   helpPage
 	Weight float64
@@ -498,7 +777,8 @@ func searchHelp(db *sql.DB, query string) (*helpPage, []helpPage) {
 		return a.Object < b.Object
 	}
 
-	for depth, v := range queryVariants(query) {
+	variants := ix.translate(queryVariants(query))
+	for depth, v := range variants {
 		fade := 1.0 - 0.12*float64(depth) // чем дальше от исходной формулировки, тем слабее
 		key := normKey(v)
 		for _, p := range ix.toc[key] { // 1. имя темы в оглавлении
@@ -527,10 +807,15 @@ func searchHelp(db *sql.DB, query string) (*helpPage, []helpPage) {
 		if p, ok := ix.pages[strings.ToLower(v)]; ok { // 2. имя страницы
 			add(p, 90*fade)
 		}
+		// 2а. слово описано ВНУТРИ темы, своей страницы у него нет. Вес ниже вендорского
+		// соответствия из оглавления: связь выведена из частоты упоминаний, а не задана.
+		if p, ok := ix.inText[key]; ok {
+			add(p, 80*fade)
+		}
 		// 3. заголовок. ORDER BY обязателен: без него LIMIT режет наугад — та же болезнь,
 		// что hits[0]. Короткий заголовок точнее по смыслу.
 		rows, err := db.Query(`SELECT title, object, path FROM pages
-		                        WHERE config='platform' AND title NOT LIKE '{%' AND title LIKE ?
+		                        WHERE ` + queryScope + ` AND title LIKE ?
 		                        ORDER BY length(title) LIMIT 60`, "%"+v+"%")
 		if err == nil {
 			for rows.Next() {
@@ -548,39 +833,57 @@ func searchHelp(db *sql.DB, query string) (*helpPage, []helpPage) {
 		}
 	}
 
-	words := queryKeywords(query)
-	if len(words) > 0 {
-		// Через FTS, а не LIKE: UPPER() в SQLite кириллицу не трогает, поэтому
-		// UPPER(title) LIKE '%ЛИТЕРАЛ%' не находит «Литерал типа ДАТА». Токенизатор FTS
-		// регистр учитывает верно, а совпадение именно в ЗАГОЛОВКЕ проверяем в коде.
+	// Полнотекстовый проход. Через FTS, а не LIKE: UPPER() в SQLite кириллицу не трогает,
+	// поэтому UPPER(title) LIKE '%ЛИТЕРАЛ%' не находит «Литерал типа ДАТА». Токенизатор FTS
+	// регистр учитывает верно, а совпадение именно в ЗАГОЛОВКЕ проверяем в коде.
+	ftsPass := func(words []string, weight float64) {
+		if len(words) == 0 {
+			return
+		}
 		quoted := make([]string, 0, len(words))
 		for _, w := range words {
 			quoted = append(quoted, `"`+strings.ReplaceAll(w, `"`, ``)+`"`)
 		}
 		rows, err := db.Query(`SELECT p.title, p.object, p.path FROM pages_fts f
 		                        JOIN pages p ON p.id = f.rowid
-		                        WHERE pages_fts MATCH ? AND p.config='platform'
-		                          AND p.title NOT LIKE '{%'
+		                        WHERE pages_fts MATCH ?
+		                          AND p.config='platform' AND p.title NOT LIKE '{%'
+		                          AND (p.category='shquery' OR p.path LIKE '%/tables/%')
 		                        ORDER BY length(p.title) LIMIT 200`, strings.Join(quoted, " AND "))
-		if err == nil {
-			for rows.Next() {
-				var p helpPage
-				if rows.Scan(&p.Title, &p.Object, &p.Path) != nil {
-					continue
-				}
-				up := strings.ToUpper(p.Title)
-				all := true
-				for _, w := range words {
-					if !strings.Contains(up, strings.ToUpper(w)) {
-						all = false
-						break
-					}
-				}
-				if all {
-					add(p, 66)
+		if err != nil {
+			return
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var p helpPage
+			if rows.Scan(&p.Title, &p.Object, &p.Path) != nil {
+				continue
+			}
+			up := strings.ToUpper(p.Title)
+			all := true
+			for _, w := range words {
+				if !strings.Contains(up, strings.ToUpper(w)) {
+					all = false
+					break
 				}
 			}
-			rows.Close()
+			if all {
+				add(p, weight)
+			}
+		}
+	}
+
+	words := queryKeywords(query)
+	ftsPass(words, 66)
+
+	// Перевод ищется ОТДЕЛЬНЫМ проходом, а не подмешивается к словам вопроса. Слова внутри
+	// запроса FTS соединяются через AND, поэтому «ВНЕШНЕЕ» + «OUTER» в одном наборе требует
+	// страницу, где есть оба слова сразу, — то есть сужает поиск там, где надо расширить.
+	// Проверено на себе: подмешивание увело «ВНЕШНЕЕ» с темы соединений на свойство
+	// хранилища двоичных данных. Вес ниже: перевод дальше от того, что спросили.
+	for _, v := range variants[1:] {
+		if tw := queryKeywords(v); len(tw) > 0 {
+			ftsPass(tw, 60)
 		}
 	}
 
@@ -650,5 +953,22 @@ func searchHelp(db *sql.DB, query string) (*helpPage, []helpPage) {
 		return nil, rest
 	}
 	best := out[0].Page
+	// Слабое попадание: вопрос из нескольких слов, а заголовок лучшей страницы покрывает
+	// не больше половины из них, и попадание не вендорское (вес ниже соответствия из
+	// оглавления). Это страница по одному общему слову — «функция выражение» →
+	// ВыражениеXPath. Отказ с перечнем соседей честнее: подмену не видно, отказ виден.
+	if len(words) >= 2 && out[0].Weight < 90 {
+		up := strings.ToUpper(best.Title)
+		covered := 0
+		for _, w := range words {
+			if strings.Contains(up, stemWord(w)) {
+				covered++
+			}
+		}
+		// Половина — тоже слабо: у вопроса из двух слов совпало одно, общее.
+		if covered*2 <= len(words) {
+			return nil, rest
+		}
+	}
 	return &best, rest
 }

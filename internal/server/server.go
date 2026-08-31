@@ -6,7 +6,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/aleksandrgradoboev-svg/gt-data-1c/internal/tools"
+	"github.com/greentech/gt-data-1c/internal/tools"
 )
 
 // Version — версия продукта. Расширение в базе сверяет её со своей.
@@ -16,16 +16,22 @@ const Version = "0.1.0"
 type Options struct {
 	RegistryPath string
 	Timeout      time.Duration
+	// AllowRawQuery — снять гейт построителя (см. tools/gate.go). Для тестов; в main не задаётся.
+	AllowRawQuery bool
 }
 
 // New собирает сервер со всеми инструментами.
 func New(opts Options) *mcp.Server {
-	set := &tools.Set{RegistryPath: opts.RegistryPath, Timeout: opts.Timeout, Version: Version}
+	set := &tools.Set{RegistryPath: opts.RegistryPath, Timeout: opts.Timeout, Version: Version, AllowRawQuery: opts.AllowRawQuery}
 
 	srv := mcp.NewServer(
 		&mcp.Implementation{Name: "gt-data-1c", Version: Version},
 		&mcp.ServerOptions{Instructions: instructions},
 	)
+
+	// Журнал вызовов — до регистрации инструментов: он должен видеть все до единого,
+	// включая те, что появятся здесь позже.
+	srv.AddReceivingMiddleware(journalMiddleware)
 
 	// Порядок регистрации — порядок знакомства агента с базой: где мы работаем,
 	// жив ли канал, что за конфигурация, из чего она состоит, и только потом данные.
@@ -70,4 +76,12 @@ base ОБЯЗАТЕЛЕН у каждого инструмента данных,
 
 Ответ, начинающийся словом ОТКАЗ, говорит о ВЫЗОВЕ, а не о содержимом базы: запрошенное
 не выполнено. Прежде чем считать пустой ответ фактом, проверь канал инструментом probe —
-он различает погашенный веб-сервер, неустановленное расширение и отказ прав.`
+он различает погашенный веб-сервер, неустановленное расширение и отказ прав.
+
+Текст запроса пишет платформа, а не ты. query выполняет ТОЛЬКО текст, который в этой сессии
+вернул query_build: назови источник, поля (строками или {поле, функция, как}), отбор,
+группировку, порядок — и выполни собранный текст как есть. Написанный руками текст query не
+выполняет, даже прошедший query_check; тот остаётся диагностикой синтаксиса, и после одного
+его отказа следующий текст не разбирается, пока не позван query_build. Соединения и пакеты
+построитель не собирает — такой вопрос возвращается словами «не собирается», без обходного
+текста и без счёта вручную по общей выдаче.`
