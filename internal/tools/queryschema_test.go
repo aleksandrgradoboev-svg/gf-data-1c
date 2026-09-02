@@ -33,7 +33,14 @@ func TestQueryBuildПоляСтрокойИОбъектом(t *testing.T) {
 
 func TestQueryBuildСхемаДопускаетСтроку(t *testing.T) {
 	s := queryBuildSchema()
-	items := s.Properties["select"].Items
+	// select теперь сам anyOf: [строка-с-JSON-массивом, массив] — лояльность к
+	// стрингифицированным спискам (02.09.2026). Форму элементов проверяем во
+	// второй ветви anyOf.
+	свойство := s.Properties["select"]
+	if len(свойство.AnyOf) != 2 || свойство.AnyOf[0].Type != "string" || свойство.AnyOf[1].Type != "array" {
+		t.Fatalf("select должен быть anyOf [string, array], получено %+v", свойство.AnyOf)
+	}
+	items := свойство.AnyOf[1].Items
 	if items == nil || len(items.AnyOf) != 2 {
 		t.Fatalf("элемент «поля» должен быть anyOf из двух форм, получено %+v", items)
 	}

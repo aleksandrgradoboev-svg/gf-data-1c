@@ -75,14 +75,15 @@ type AccountsInput struct {
 	End         string         `json:"end,omitempty" jsonschema:"Конец периода для Обороты и ОстаткиИОбороты"`
 	Periodicity string         `json:"periodicity,omitempty" jsonschema:"Разбивка периода: Месяц, Квартал, Год, День, Регистратор. Пусто — один итог за весь период"`
 	Register    string         `json:"register,omitempty" jsonschema:"Имя регистра бухгалтерии (по умолчанию Хозрасчетный)"`
-	Resources   []string       `json:"resources,omitempty" jsonschema:"Показатели: СуммаОстатокДт, СуммаОборотДт и т.п. Пусто — стандартный набор для выбранного вида"`
+	Resources   СписокСтрок    `json:"resources,omitempty" jsonschema:"Показатели: СуммаОстатокДт, СуммаОборотДт и т.п. Пусто — стандартный набор для выбранного вида"`
 	Parameters  map[string]any `json:"parameters,omitempty" jsonschema:"Параметры отбора: ключ без амперсанда"`
 	Limit       int            `json:"limit,omitempty" jsonschema:"Сколько строк вернуть (по умолчанию 100, максимум 1000)"`
 }
 
 func AccountsTool() *mcp.Tool {
 	return &mcp.Tool{
-		Name: "accounts",
+		Name:        "accounts",
+		InputSchema: схемаСоСтрочнымиСписками[AccountsInput]("resources"),
 		Description: "Получить бухгалтерские итоги по счёту: остатки на дату (kind=Остатки), обороты " +
 			"за период (kind=Обороты) или полную картину с начальным и конечным остатком " +
 			"(kind=ОстаткиИОбороты). Счёт задаётся кодом — 41, 62.01, 51. Разбивку по периодам даёт " +

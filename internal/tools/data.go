@@ -219,10 +219,10 @@ type RegisterInput struct {
 	Period     string   `json:"period,omitempty" jsonschema:"Дата остатков для kind=Остатки, например 2026-06-30. Пусто — на текущий момент"`
 	Start      string   `json:"start,omitempty" jsonschema:"Начало периода для Обороты и ОстаткиИОбороты"`
 	End        string   `json:"end,omitempty" jsonschema:"Конец периода для Обороты и ОстаткиИОбороты"`
-	Dimensions []string `json:"dimensions,omitempty" jsonschema:"Измерения-разрезы для группировки. Пусто — итог одной строкой"`
+	Dimensions СписокСтрок `json:"dimensions,omitempty" jsonschema:"Измерения-разрезы для группировки. Пусто — итог одной строкой"`
 	// Поле намеренно необязательное в схеме: пустые resources — частая ошибка, и отвечать
 	// на неё должен наш отказ с подсказкой, где взять имена, а не сухое «missing properties».
-	Resources  []string       `json:"resources,omitempty" jsonschema:"Ресурсы виртуальной таблицы: КоличествоОстаток для остатков, КоличествоОборот для оборотов. Имена берутся из object"`
+	Resources  СписокСтрок    `json:"resources,omitempty" jsonschema:"Ресурсы виртуальной таблицы: КоличествоОстаток для остатков, КоличествоОборот для оборотов. Имена берутся из object"`
 	Where      string         `json:"where,omitempty" jsonschema:"Дополнительный отбор по полям виртуальной таблицы, без слова ГДЕ"`
 	Parameters map[string]any `json:"parameters,omitempty" jsonschema:"Параметры отбора: ключ без амперсанда"`
 	Limit      int            `json:"limit,omitempty" jsonschema:"Сколько строк вернуть (по умолчанию 100, максимум 1000)"`
@@ -230,7 +230,8 @@ type RegisterInput struct {
 
 func RegisterTool() *mcp.Tool {
 	return &mcp.Tool{
-		Name: "register",
+		Name:        "register",
+		InputSchema: схемаСоСтрочнымиСписками[RegisterInput]("dimensions", "resources"),
 		Description: "Получить итоги регистра накопления через виртуальные таблицы: остатки на дату " +
 			"(kind=Остатки), обороты за период (kind=Обороты) или и то и другое. Запрос собирается " +
 			"сервером — имя виртуальной таблицы, порядок границ периода и группировка не сочиняются " +
