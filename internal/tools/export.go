@@ -52,6 +52,16 @@ func (s *Set) Export(ctx context.Context, _ *mcp.CallToolRequest, in ExportInput
 	if err != nil {
 		return nil, nil, err
 	}
+	// Тот же гейт, что у query: выгрузка выполняет только текст построителя. Без этого
+	// export — обход гейта в один ход: query рукописный текст отвергает, а export с тем же
+	// текстом писал файл (найдено живой сессией ba-analyst 02.09.2026, модель дыру нашла
+	// сама с четвёртой попытки).
+	if !s.AllowRawQuery && !s.gate.isApproved(in.Query) {
+		return nil, nil, refusal.New(refusal.BadRequest, "текст запроса не собран построителем",
+			"выгрузка выполняет только текст, который в этой сессии вернул query_build — дословно; "+
+				"написанный руками текст не выполняется, даже разобранный query_check",
+			"соберите запрос query_build (источник, поля, отбор, группировка, порядок) и выгружайте его текст как есть")
+	}
 
 	format := strings.ToLower(strings.TrimSpace(in.Format))
 	if format == "" {
