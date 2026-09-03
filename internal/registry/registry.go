@@ -190,6 +190,92 @@ func (r *Registry) Add(b Base) error {
 	return r.Save()
 }
 
+// Update правит существующую базу, НЕ трогая незаполненные поля.
+//
+// Отдельно от Add потому, что Add заменяет запись целиком: правка адреса через него
+// стирает пароль, если его не передали заново. А пароль наверх не отдаётся (и не должен),
+// поэтому UI физически не может прислать его обратно — он его не видел. Отсюда правило:
+// пустое поле здесь значит «оставить как было», а не «очистить».
+//
+// Исключение — Title: имя, стёртое намеренно, обязано стираться. Для него пустая строка
+// это значение, поэтому очистка заголовка передаётся явным ClearTitle.
+type Patch struct {
+	Name     string
+	Title    string
+	URL      string
+	User     string
+	Password string
+	Auth     string
+
+	// ClearTitle отличает «заголовок не меняли» от «заголовок стёрли».
+	ClearTitle bool
+}
+
+// Update применяет патч к базе. Возвращает изменённую базу и перечень изменённых
+// полей — вызывающему есть что показать человеку, а «ничего не изменилось» не
+// выглядит успехом.
+func (r *Registry) Update(p Patch) (Base, []string, error) {
+	name := strings.TrimSpace(p.Name)
+	if name == "" {
+		return Base{}, nil, refusal.New(refusal.BadRequest, "база не названа",
+			"нужно имя базы, которую правим",
+			"перечень баз — инструмент bases с action=list")
+	}
+
+	idx := -1
+	for i, b := range r.Bases {
+		if strings.EqualFold(b.Name, name) {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return Base{}, nil, refusal.UnknownBaseError(name, r.Names())
+	}
+
+	base := r.Bases[idx]
+	var changed []string
+
+	if v := strings.TrimSpace(p.URL); v != "" && v != base.URL {
+		base.URL = v
+		changed = append(changed, "адрес")
+	}
+	if v := strings.TrimSpace(p.User); v != "" && v != base.User {
+		base.User = v
+		changed = append(changed, "пользователь")
+	}
+	if v := strings.TrimSpace(p.Auth); v != "" && !strings.EqualFold(v, base.Auth) {
+		base.Auth = v
+		changed = append(changed, "аутентификация")
+	}
+	// Пароль не сравнивается со старым: хранится он защищённым, а сравнивать
+	// открытое с шифрованным — значит расшифровывать ради сравнения.
+	if p.Password != "" {
+		base.Password = p.Password
+		changed = append(changed, "пароль")
+	}
+	switch {
+	case p.ClearTitle && base.Title != "":
+		base.Title = ""
+		changed = append(changed, "название снято")
+	case !p.ClearTitle:
+		if v := strings.TrimSpace(p.Title); v != "" && v != base.Title {
+			base.Title = v
+			changed = append(changed, "название")
+		}
+	}
+
+	if len(changed) == 0 {
+		return base, nil, nil
+	}
+
+	r.Bases[idx] = base
+	if err := r.Save(); err != nil {
+		return Base{}, nil, err
+	}
+	return base, changed, nil
+}
+
 // Remove убирает базу из реестра.
 func (r *Registry) Remove(name string) error {
 	for i, b := range r.Bases {
