@@ -104,9 +104,19 @@ func TestПробаРазличаетВидыОтказа(t *testing.T) {
 	}))
 	defer live.Close()
 
-	// Расширения нет: любой путь отвечает 404.
+	// Расширения нет: 1С отвечает 404 на неизвестный маршрут — тело без HTML.
 	noExt := httptest.NewServer(http.HandlerFunc(http.NotFound))
 	defer noExt.Close()
+
+	// Публикации нет: 404 рисует сам веб-сервер своей HTML-страницей, до 1С
+	// запрос не дошёл. Замерено на живом Apache 03.09.2026 — именно этим
+	// два 404 и различаются, а не длиной ответа.
+	noPub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=iso-8859-1")
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte("<html><head><title>404 Not Found</title></head><body><h1>Not Found</h1></body></html>"))
+	}))
+	defer noPub.Close()
 
 	// Прав нет: 401.
 	noAuth := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -117,6 +127,7 @@ func TestПробаРазличаетВидыОтказа(t *testing.T) {
 	for _, b := range []struct{ name, url string }{
 		{"alive", live.URL},
 		{"noext", noExt.URL},
+		{"nopub", noPub.URL},
 		{"noauth", noAuth.URL},
 		{"nosrv", "http://127.0.0.1:1/data"}, // никто не слушает
 	} {
@@ -134,7 +145,8 @@ func TestПробаРазличаетВидыОтказа(t *testing.T) {
 	}
 	checks := []struct{ base, want string }{
 		{"alive", "жив"},
-		{"noext", "расширение не установлено"},
+		{"noext", "расширение не отвечает"},
+		{"nopub", "базы нет по этому адресу"},
 		{"noauth", "отказ прав"},
 		{"nosrv", "веб-сервер не отвечает"},
 	}
@@ -144,7 +156,7 @@ func TestПробаРазличаетВидыОтказа(t *testing.T) {
 			t.Errorf("база %s: ожидалось %q, строка отчёта: %q", c.base, c.want, line)
 		}
 	}
-	if !strings.Contains(out, "Живых каналов: 1 из 4") {
+	if !strings.Contains(out, "Живых каналов: 1 из 5") {
 		t.Errorf("итоговый счётчик неверен: %s", out)
 	}
 }

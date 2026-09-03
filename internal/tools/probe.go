@@ -160,8 +160,10 @@ func probeOne(ctx context.Context, client *channel.Client) (string, string, bool
 		switch ref.Kind {
 		case refusal.NoWebServer:
 			return fmt.Sprintf("❌ %-10s веб-сервер не отвечает — %s", base.Name, ref.Why), "", false
+		case refusal.NoPublication:
+			return fmt.Sprintf("❌ %-10s базы нет по этому адресу — %s", base.Name, ref.Why), "", false
 		case refusal.NoExtension:
-			return fmt.Sprintf("❌ %-10s расширение не установлено — %s", base.Name, ref.Why), "", false
+			return fmt.Sprintf("❌ %-10s расширение не отвечает — %s", base.Name, ref.Why), "", false
 		case refusal.Unauthorized:
 			return fmt.Sprintf("❌ %-10s отказ прав — %s", base.Name, ref.Why), "", false
 		default:
