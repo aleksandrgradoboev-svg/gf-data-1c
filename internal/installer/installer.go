@@ -147,8 +147,50 @@ func copyDir(src, dst string) error {
 
 // resolvePlatform ищет конфигуратор: по указанному пути либо среди установленных версий,
 // выбирая старшую. Версии сравниваются по числам, а не по строке — иначе 8.3.9 окажется
+// platformRoots — где искать платформу. Двух путей на диске C: не хватает:
+// платформу ставят на другой диск, 64-битная версия живёт в каталоге 1cv8x64,
+// а каталог установки 1С разрешает задать руками. Поэтому корни собираются,
+// а не перечисляются: явное указание через GT_DATA_1C_PLATFORM, переменные
+// окружения ProgramFiles (на 64-битной Windows их несколько) и оба имени
+// каталога. Порядок важен: сначала то, что назвал человек.
+func platformRoots() []string {
+	var roots []string
+	seen := map[string]bool{}
+	add := func(dir string) {
+		if dir == "" || seen[strings.ToLower(dir)] {
+			return
+		}
+		seen[strings.ToLower(dir)] = true
+		roots = append(roots, dir)
+	}
+
+	if env := os.Getenv("GT_DATA_1C_PLATFORM"); env != "" {
+		add(env)
+	}
+	for _, base := range []string{
+		os.Getenv("ProgramFiles"),
+		os.Getenv("ProgramFiles(x86)"),
+		os.Getenv("ProgramW6432"),
+		`C:\Program Files`,
+		`C:\Program Files (x86)`,
+	} {
+		if base == "" {
+			continue
+		}
+		add(filepath.Join(base, "1cv8"))
+		add(filepath.Join(base, "1cv8x64"))
+	}
+	return roots
+}
+
 // «новее» 8.3.27.
 func resolvePlatform(explicit string) (string, error) {
+	return resolvePlatformIn(explicit, platformRoots())
+}
+
+// resolvePlatformIn — то же, но корни поиска задаются явно: так поведение
+// проверяется тестом на любой машине, а не только там, где платформы нет.
+func resolvePlatformIn(explicit string, roots []string) (string, error) {
 	if explicit != "" {
 		if info, err := os.Stat(explicit); err == nil && !info.IsDir() {
 			return explicit, nil
@@ -160,10 +202,6 @@ func resolvePlatform(explicit string) (string, error) {
 		return "", fmt.Errorf("конфигуратор не найден по указанному пути: %s", explicit)
 	}
 
-	roots := []string{
-		`C:\Program Files\1cv8`,
-		`C:\Program Files (x86)\1cv8`,
-	}
 	var found []string
 	for _, root := range roots {
 		entries, err := os.ReadDir(root)
@@ -181,7 +219,10 @@ func resolvePlatform(explicit string) (string, error) {
 		}
 	}
 	if len(found) == 0 {
-		return "", fmt.Errorf("конфигуратор 1С не найден в %s — укажите путь флагом -platform",
+		return "", fmt.Errorf("конфигуратор 1С (1cv8.exe) не найден.\n"+
+			"Искали в: %s\n"+
+			"Платформа в другом месте — укажите путь флагом -platform, "+
+			"либо задайте каталог версий в переменной GT_DATA_1C_PLATFORM",
 			strings.Join(roots, ", "))
 	}
 

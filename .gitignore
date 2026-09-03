@@ -3,3 +3,4 @@ build/ext/
 build/ext-*/
 internal/installer/extension/
 *.exe
+build/out/

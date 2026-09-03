@@ -20,19 +20,29 @@
     конфигурации последних лет; поднимать его нужно только ради возможностей платформы,
     которых нет в старом режиме.
 
-.PARAMETER StripDefaultRole
-    Не объявлять роль расширения основной ролью конфигурации.
+.PARAMETER DefaultRole
+    Объявить роль расширения ОСНОВНОЙ ролью конфигурации.
 
-    По умолчанию роль объявляется: иначе доступ к сервису есть только у того, кому её
-    выдали руками, а обычный пользователь получает отказ прав, неотличимый от поломки
-    канала. Флаг нужен для баз, где библиотека стандартных подсистем считает основные
-    роли и лишняя запись роняет сеанс.
+    Умолчание с 03.09.2026 — НЕ объявлять, и вот почему. Основная роль выдаётся
+    платформой неявно: в списке ролей пользователя она не появляется никогда — ни
+    когда работает, ни когда пропала. А в базах на БСП её стирает пересчёт ролей
+    в подсистеме «Управление доступом», и канал молча умирает с отказом прав,
+    неотличимым от неверного пароля. Разницы на экране при этом ноль.
+
+    Видимая роль выдаётся в ПОЛЬЗОВАТЕЛЬСКОМ режиме через профиль группы доступа
+    (Администрирование → Настройки пользователей и прав → Профили групп доступа):
+    заводится дополнительный профиль с одной ролью GT_ОсновнаяРоль, по нему —
+    группа доступа с нужными пользователями. Так право видно, проверяемо и
+    переживает пересчёт ролей.
+
+    Флаг нужен там, где профиль заводить негде: база без БСП, разовый стенд,
+    демонстрация. Тогда доступ получают все пользователи сразу и без настройки.
 #>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)] [string] $OutputDir,
     [string] $CompatibilityMode = 'Version8_3_18',
-    [switch] $StripDefaultRole
+    [switch] $DefaultRole
 )
 
 $ErrorActionPreference = 'Stop'
@@ -63,12 +73,24 @@ Write-Host "[4/6] Роль доступа"
 & powershell.exe -NoProfile -File (Join-Path $skills 'role-compile\scripts\role-compile.ps1') `
     -JsonPath (Join-Path $root 'build\role.json') -OutputDir $OutputDir | Out-Null
 
-if (-not $StripDefaultRole) {
-    Write-Host "[5/6] Роль по умолчанию"
+if ($DefaultRole) {
+    Write-Host "[5/6] Роль по умолчанию — объявляется (-DefaultRole)"
     & powershell.exe -NoProfile -File (Join-Path $skills 'cf-edit\scripts\cf-edit.ps1') `
         -ConfigPath $OutputDir -Operation add-defaultRole -Value 'GT_ОсновнаяРоль' | Out-Null
 } else {
-    Write-Host "[5/6] Роль по умолчанию — пропущена (-StripDefaultRole)"
+    # Флаг ОБЯЗАН удалять объявление, а не пропускать его добавление: каркас
+    # cfe-init прописывает DefaultRoles сам, поэтому «просто не добавлять»
+    # оставляло роль основной — и прежний флаг -StripDefaultRole, существовавший
+    # ровно ради баз с БСП, молча не делал ничего. Поймано 03.09.2026 проверкой
+    # собранного .cfe, а не доверием к сообщению скрипта.
+    Write-Host "[5/6] Роль видимая — основной не объявляется (выдаётся профилем)"
+    $confPath = Join-Path $OutputDir 'Configuration.xml'
+    $text = [System.IO.File]::ReadAllText($confPath)
+    $text = $text -replace '(?s)\s*<DefaultRoles>.*?</DefaultRoles>', ''
+    [System.IO.File]::WriteAllText($confPath, $text, (New-Object System.Text.UTF8Encoding $true))
+    if (Select-String -Path $confPath -Pattern 'DefaultRoles' -Quiet) {
+        throw "DefaultRoles не удалось снять из $confPath"
+    }
 }
 
 Write-Host "[6/6] Модуль сервиса"
