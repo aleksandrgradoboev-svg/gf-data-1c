@@ -41,8 +41,30 @@ func main() {
 		dbUser     = flag.String("db-user", "", "пользователь базы для конфигуратора (режим установки)")
 		dbPassword = flag.String("db-password", "", "пароль пользователя базы (режим установки)")
 		platform   = flag.String("platform", "", "путь к 1cv8.exe (по умолчанию ищется старшая версия)")
+
+		exportExt = flag.String("export-extension", "", "выложить расширение файлом .cfe по этому пути "+
+			"и выйти: для случая, когда расширение подключает администратор базы своими руками")
 	)
 	flag.Parse()
+
+	if *exportExt != "" {
+		// Отдельный режим, а не часть установки: расширение подключает
+		// администратор базы, а работает под каналом обычный пользователь —
+		// установка через конфигуратор ему недоступна.
+		path, err := installer.Export(*exportExt, *platform)
+		if err != nil {
+			if path != "" {
+				// Платформы нет: выложены исходники, и это сказано вслух.
+				fmt.Fprintf(os.Stderr, "gt-data-1c: %v\n", err)
+				os.Exit(0)
+			}
+			fmt.Fprintf(os.Stderr, "gt-data-1c: расширение не выгружено: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Расширение %s выгружено: %s\n", installer.ExtensionName, path)
+		fmt.Println("Подключить: Конфигуратор → Конфигурация → Расширения конфигурации → Добавить из файла.")
+		return
+	}
 
 	if *install != "" {
 		err := installer.Install(installer.Options{

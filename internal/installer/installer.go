@@ -100,6 +100,81 @@ func Install(opts Options) error {
 	return nil
 }
 
+// Export выкладывает встроенное расширение на диск, чтобы его подключил
+// администратор базы своими руками.
+//
+// Нужно потому, что установка через -install требует режима конфигуратора,
+// то есть права «Администрирование» у пользователя базы. Там, где расширение
+// ставит админ, а работает под каналом обычный пользователь, файл нужен
+// отдельно — а он вшит в бинарь и достать его неоткуда.
+//
+// Отдаётся .cfe, когда платформа найдена: именно его принимает форма
+// «Расширения конфигурации». Платформы нет — выкладываются XML-исходники,
+// и об этом говорится прямо, а не подсовывается молча не тот формат.
+func Export(dst string, platform string) (string, error) {
+	if strings.TrimSpace(dst) == "" {
+		return "", fmt.Errorf("не сказано, куда выгружать расширение")
+	}
+
+	src, err := unpack()
+	if err != nil {
+		return "", err
+	}
+	defer os.RemoveAll(src)
+
+	exe, platErr := resolvePlatform(platform)
+	if platErr != nil {
+		// Без платформы .cfe не собрать: это делает конфигуратор.
+		// Отдаём исходники — они грузятся тем же конфигуратором на машине,
+		// где платформа есть.
+		out := strings.TrimSuffix(dst, ".cfe")
+		if err := os.MkdirAll(out, 0o700); err != nil {
+			return "", fmt.Errorf("каталог %s не создан: %w", out, err)
+		}
+		if err := copyDir("extension", out); err != nil {
+			return "", err
+		}
+		return out, fmt.Errorf("платформа не найдена, собран не .cfe, а XML-исходники в %s "+
+			"(грузятся конфигуратором: Конфигурация → Загрузить конфигурацию из файлов). %v", out, platErr)
+	}
+
+	if !strings.HasSuffix(strings.ToLower(dst), ".cfe") {
+		dst += ".cfe"
+	}
+	if dir := filepath.Dir(dst); dir != "" {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return "", fmt.Errorf("каталог %s не создан: %w", dir, err)
+		}
+	}
+
+	// Промежуточная база нужна потому, что .cfe рождается только выгрузкой
+	// ИЗ базы: конфигуратор не умеет собирать расширение прямо из XML.
+	tmpIB, err := os.MkdirTemp("", "gt-data-1c-ib-")
+	if err != nil {
+		return "", fmt.Errorf("временная база не создана: %w", err)
+	}
+	defer os.RemoveAll(tmpIB)
+
+	ibcmd := filepath.Join(filepath.Dir(exe), "ibcmd.exe")
+	if _, err := os.Stat(ibcmd); err != nil {
+		return "", fmt.Errorf("рядом с %s нет ibcmd.exe — сборка .cfe невозможна", exe)
+	}
+
+	steps := [][]string{
+		{"infobase", "create", "--data=" + tmpIB, "--create-database"},
+		{"extension", "create", "--data=" + tmpIB, "--name=" + ExtensionName, "--name-prefix=GT_"},
+		{"config", "import", "--data=" + tmpIB, "--extension=" + ExtensionName, src},
+		{"config", "save", "--data=" + tmpIB, "--extension=" + ExtensionName, dst},
+	}
+	for _, args := range steps {
+		out, err := exec.Command(ibcmd, args...).CombinedOutput()
+		if err != nil {
+			return "", fmt.Errorf("шаг «%s» не удался: %v; %s", strings.Join(args[:2], " "), err, out)
+		}
+	}
+	return dst, nil
+}
+
 // unpack разворачивает встроенные исходники во временный каталог.
 func unpack() (string, error) {
 	dir, err := os.MkdirTemp("", "gt-data-1c-ext-")
