@@ -55,3 +55,29 @@ jobs:
 
       - name: Тесты
         run: go test ./internal/...
+
+      # ── Rust ──────────────────────────────────────────────────────────
+      #
+      # Перевод с Go идёт слой за слоем, и обе реализации какое-то время живут
+      # рядом. CI проверяет обе: иначе растущая половина ломается молча, а
+      # замечается это на последнем шаге, когда чинить дороже всего.
+
+      - name: Тулчейн Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Кэш Rust
+        uses: Swatinem/rust-cache@v2
+
+      - name: Форматирование (Rust)
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Сборка (Rust)
+        run: cargo build --workspace --all-targets
+
+      - name: Тесты (Rust)
+        run: cargo test --workspace

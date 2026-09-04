@@ -1,0 +1,43 @@
+[workspace]
+resolver = "2"
+members = ["crates/gf-data-1c"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "MIT"
+authors = ["Aleksandr Gradoboev"]
+repository = "https://github.com/aleksandrgradoboev-svg/gf-data-1c"
+
+[workspace.dependencies]
+anyhow = "1"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+
+# DPAPI для защиты паролей реестра под Windows. Смысл не в стойкости шифра, а в
+# области действия ключа: он привязан к учётной записи, поэтому украденный файл
+# реестра ничего не даёт на другой машине. Под не-Windows защиты нет вовсе, и
+# продукт говорит об этом прямо, а не делает вид.
+windows = { version = "0.62", features = ["Win32_Security_Cryptography", "Win32_Foundation"] }
+
+# HTTP к расширению внутри базы. rustls, а не native-tls: сборка не должна
+# зависеть от системного OpenSSL — образ собирается в контейнере, а бинарь
+# обязан быть самодостаточным.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "blocking"] }
+
+# NTLMv2 для доменных учёток. Готовой обёртки транспорта в Rust нет (разведка
+# 04.09.2026): крейт даёт примитивы — расчёт ответа на challenge, — а трёхшаговое
+# рукопожатие поверх HTTP пишем сами.
+ntlmclient = "0.2"
+
+# Справка платформы: SQLite с FTS5, только чтение. bundled — чтобы не зависеть
+# от системной библиотеки, ровно по той же причине, что и rustls.
+rusqlite = { version = "0.37", features = ["bundled"] }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
