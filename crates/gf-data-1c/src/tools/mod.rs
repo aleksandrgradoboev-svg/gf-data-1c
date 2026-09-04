@@ -6,7 +6,9 @@
 //! разделение и делает продукт пригодным для встраивания.
 
 pub mod bases;
+pub mod data;
 pub mod gate;
+pub mod lenient;
 pub mod meta;
 pub mod probe;
 pub mod queryhints;
