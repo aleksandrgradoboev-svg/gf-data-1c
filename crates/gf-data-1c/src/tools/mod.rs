@@ -13,6 +13,7 @@ pub mod lenient;
 pub mod meta;
 pub mod probe;
 pub mod queryhints;
+pub mod queryschema;
 pub mod slice;
 
 use std::path::PathBuf;
