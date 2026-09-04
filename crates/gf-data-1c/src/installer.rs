@@ -318,9 +318,9 @@ pub fn export(dst: &str, platform: &str) -> Result<PathBuf, Refusal> {
         let out = Command::new(&ibcmd).args(&args).output();
         let bad = match &out {
             Err(e) => Some((e.to_string(), Vec::new())),
-            Ok(o) if !o.status.success() => Some((
-                format!("код возврата {}", o.status),
-                [o.stdout.clone(), o.stderr.clone()].concat(),
+            Ok(вых) if !вых.status.success() => Some((
+                format!("код возврата {}", вых.status),
+                [вых.stdout.clone(), вых.stderr.clone()].concat(),
             )),
             Ok(_) => None,
         };

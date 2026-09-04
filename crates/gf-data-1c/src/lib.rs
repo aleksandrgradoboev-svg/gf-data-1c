@@ -7,6 +7,7 @@
 //! с ним.
 
 pub mod channel;
+pub mod http;
 pub mod installer;
 pub mod journal;
 pub mod ntlm;
@@ -14,4 +15,5 @@ pub mod proto;
 pub mod refusal;
 pub mod registry;
 pub mod secret;
+pub mod server;
 pub mod tools;

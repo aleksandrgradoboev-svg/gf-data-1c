@@ -260,11 +260,11 @@ impl Set {
             client.base().name,
             r.count
         );
-        for o in &r.objects {
-            if !o.synonym.is_empty() && o.synonym != o.name {
-                out.push_str(&format!("  {} — {}\n", o.name, o.synonym));
+        for объект in &r.objects {
+            if !объект.synonym.is_empty() && объект.synonym != объект.name {
+                out.push_str(&format!("  {} — {}\n", объект.name, объект.synonym));
             } else {
-                out.push_str(&format!("  {}\n", o.name));
+                out.push_str(&format!("  {}\n", объект.name));
             }
         }
         Ok(out)
@@ -362,8 +362,8 @@ impl Set {
         }
         if !r.content.is_empty() {
             out.push_str(&format!("\nСостав подсистемы ({}):\n", r.content.len()));
-            for o in &r.content {
-                out.push_str(&format!("  {o}\n"));
+            for строка in &r.content {
+                out.push_str(&format!("  {строка}\n"));
             }
         }
         if !r.subsystems.is_empty() {
