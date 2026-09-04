@@ -7,6 +7,7 @@
 
 pub mod bases;
 pub mod gate;
+pub mod meta;
 pub mod probe;
 
 use std::path::PathBuf;
