@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  check:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Windows — целевая платформа: там установщик расширения зовёт конфигуратор
+        # и там работает защита паролей (DPAPI).
+        # Linux — потому что сервер должен собираться и в контейнере.
+        os: [windows-latest, ubuntu-latest]
+
+    env:
+      # Живые тесты ходят в стенды 1С по HTTP. На машине сборки стендов нет,
+      # и молчать они обязаны сами — но флаг ставится явно, чтобы отсутствие
+      # стенда не выглядело удачным прогоном по случайности.
+      GT_SKIP_LIVE: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Форматирование
+        shell: bash
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "не отформатировано (gofmt -w):"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      # Сборка идёт из среза репозитория как он есть, без локальных артефактов.
+      # Расширение 1С кладётся в бинарь отдельным шагом и в git не едет — из-за этого
+      # свежий клон однажды перестал собираться вовсе (go:embed требует каталог).
+      # Здесь это проверяется машиной, а не памятью.
+      - name: Сборка
+        run: go build ./...
+
+      - name: Тесты
+        run: go test ./internal/...

@@ -23,8 +23,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/greentech/gt-data-1c/internal/refusal"
-	"github.com/greentech/gt-data-1c/internal/secret"
+	"github.com/aleksandrgradoboev-svg/gf-data-1c/internal/refusal"
+	"github.com/aleksandrgradoboev-svg/gf-data-1c/internal/secret"
 )
 
 // Base — одна информационная база.
@@ -63,6 +63,9 @@ func DefaultPath() string {
 	if err != nil || dir == "" {
 		dir = "."
 	}
+	// Каталог данных остался прежним при переименовании продукта в gf-data-1c
+	// (04.09.2026): в нём лежат пароли, защищённые DPAPI, и переезд осиротил бы
+	// реестр уже работающих установок. Имя каталога — не витрина.
 	return filepath.Join(dir, "gt-data-1c", "bases.json")
 }
 

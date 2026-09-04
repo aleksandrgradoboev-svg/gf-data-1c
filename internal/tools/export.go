@@ -12,7 +12,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/greentech/gt-data-1c/internal/refusal"
+	"github.com/aleksandrgradoboev-svg/gf-data-1c/internal/refusal"
 )
 
 // pageSize — размер порции при выгрузке. Совпадает с потолком инструментов: больше
@@ -209,6 +209,7 @@ func exportPath(explicit, base, format string) (string, error) {
 	if err != nil || dir == "" {
 		dir = "."
 	}
+	// Каталог прежний — см. registry.DefaultPath.
 	dir = filepath.Join(dir, "gt-data-1c", "exports")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", refusal.New(refusal.Internal, "каталог выгрузок не создан", err.Error())

@@ -6,7 +6,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/greentech/gt-data-1c/internal/tools"
+	"github.com/aleksandrgradoboev-svg/gf-data-1c/internal/tools"
 )
 
 // Version — версия продукта. Расширение в базе сверяет её со своей.
@@ -25,7 +25,7 @@ func New(opts Options) *mcp.Server {
 	set := &tools.Set{RegistryPath: opts.RegistryPath, Timeout: opts.Timeout, Version: Version, AllowRawQuery: opts.AllowRawQuery}
 
 	srv := mcp.NewServer(
-		&mcp.Implementation{Name: "gt-data-1c", Version: Version},
+		&mcp.Implementation{Name: "gf-data-1c", Version: Version},
 		&mcp.ServerOptions{Instructions: instructions},
 	)
 

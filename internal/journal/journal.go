@@ -28,6 +28,8 @@ func DefaultPath() string {
 	if err != nil || dir == "" {
 		dir = "."
 	}
+	// Каталог прежний — см. registry.DefaultPath: переименование продукта
+	// не двигает данные уже работающих установок.
 	return filepath.Join(dir, "gt-data-1c", "server.log")
 }
 

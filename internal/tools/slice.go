@@ -6,7 +6,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/greentech/gt-data-1c/internal/refusal"
+	"github.com/aleksandrgradoboev-svg/gf-data-1c/internal/refusal"
 )
 
 // ── Срез регистра сведений ────────────────────────────────────────────────────

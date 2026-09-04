@@ -10,7 +10,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/greentech/gt-data-1c/internal/journal"
+	"github.com/aleksandrgradoboev-svg/gf-data-1c/internal/journal"
 )
 
 // HTTPOptions — параметры сетевого режима.
@@ -55,7 +55,7 @@ func ServeHTTPListener(opts Options, httpOpts HTTPOptions, announce chan<- strin
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", authorize(httpOpts.Token, handler))
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "gt-data-1c %s\n", Version)
+		fmt.Fprintf(w, "gf-data-1c %s\n", Version)
 	})
 
 	listener, err := net.Listen("tcp", addr)
@@ -67,7 +67,7 @@ func ServeHTTPListener(opts Options, httpOpts HTTPOptions, announce chan<- strin
 		announce <- listener.Addr().String()
 	}
 
-	fmt.Fprintf(sink(), "gt-data-1c %s слушает http://%s/mcp\n", Version, listener.Addr())
+	fmt.Fprintf(sink(), "gf-data-1c %s слушает http://%s/mcp\n", Version, listener.Addr())
 	if !isLoopback(listener.Addr()) {
 		fmt.Fprintf(sink(), "ВНИМАНИЕ: адрес не локальный — сервер отдаёт данные баз всем, "+
 			"кто до него дотянется.%s\n", tokenAdvice(httpOpts.Token))

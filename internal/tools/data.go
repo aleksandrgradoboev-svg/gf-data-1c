@@ -10,7 +10,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/greentech/gt-data-1c/internal/refusal"
+	"github.com/aleksandrgradoboev-svg/gf-data-1c/internal/refusal"
 )
 
 // ── Проверка запроса ──────────────────────────────────────────────────────────
@@ -213,12 +213,12 @@ func (s *Set) Count(ctx context.Context, _ *mcp.CallToolRequest, in CountInput) 
 // ── Итоги регистра ────────────────────────────────────────────────────────────
 
 type RegisterInput struct {
-	Base       string   `json:"base" jsonschema:"Имя базы 1С из реестра. Обязательно; перечень — bases с action=list"`
-	Register   string   `json:"register" jsonschema:"Имя регистра накопления без префикса, например ТоварыНаСкладах"`
-	Kind       string   `json:"kind,omitempty" jsonschema:"Какая виртуальная таблица нужна: Остатки (умолчание), Обороты, ОстаткиИОбороты"`
-	Period     string   `json:"period,omitempty" jsonschema:"Дата остатков для kind=Остатки, например 2026-06-30. Пусто — на текущий момент"`
-	Start      string   `json:"start,omitempty" jsonschema:"Начало периода для Обороты и ОстаткиИОбороты"`
-	End        string   `json:"end,omitempty" jsonschema:"Конец периода для Обороты и ОстаткиИОбороты"`
+	Base       string      `json:"base" jsonschema:"Имя базы 1С из реестра. Обязательно; перечень — bases с action=list"`
+	Register   string      `json:"register" jsonschema:"Имя регистра накопления без префикса, например ТоварыНаСкладах"`
+	Kind       string      `json:"kind,omitempty" jsonschema:"Какая виртуальная таблица нужна: Остатки (умолчание), Обороты, ОстаткиИОбороты"`
+	Period     string      `json:"period,omitempty" jsonschema:"Дата остатков для kind=Остатки, например 2026-06-30. Пусто — на текущий момент"`
+	Start      string      `json:"start,omitempty" jsonschema:"Начало периода для Обороты и ОстаткиИОбороты"`
+	End        string      `json:"end,omitempty" jsonschema:"Конец периода для Обороты и ОстаткиИОбороты"`
 	Dimensions СписокСтрок `json:"dimensions,omitempty" jsonschema:"Измерения-разрезы для группировки. Пусто — итог одной строкой"`
 	// Поле намеренно необязательное в схеме: пустые resources — частая ошибка, и отвечать
 	// на неё должен наш отказ с подсказкой, где взять имена, а не сухое «missing properties».

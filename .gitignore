@@ -2,5 +2,8 @@ bin/
 build/ext/
 build/ext-*/
 internal/installer/extension/
+# ...но сам каталог обязан существовать: go:embed не компилируется без него,
+# и свежий клон переставал собираться вовсе.
+!internal/installer/extension/РАСШИРЕНИЕ-НЕ-СОБРАНО.txt
 *.exe
 build/out/

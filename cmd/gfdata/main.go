@@ -13,11 +13,11 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/greentech/gt-data-1c/internal/channel"
-	"github.com/greentech/gt-data-1c/internal/installer"
-	"github.com/greentech/gt-data-1c/internal/journal"
-	"github.com/greentech/gt-data-1c/internal/registry"
-	"github.com/greentech/gt-data-1c/internal/server"
+	"github.com/aleksandrgradoboev-svg/gf-data-1c/internal/channel"
+	"github.com/aleksandrgradoboev-svg/gf-data-1c/internal/installer"
+	"github.com/aleksandrgradoboev-svg/gf-data-1c/internal/journal"
+	"github.com/aleksandrgradoboev-svg/gf-data-1c/internal/registry"
+	"github.com/aleksandrgradoboev-svg/gf-data-1c/internal/server"
 )
 
 func main() {
@@ -55,10 +55,10 @@ func main() {
 		if err != nil {
 			if path != "" {
 				// Платформы нет: выложены исходники, и это сказано вслух.
-				fmt.Fprintf(os.Stderr, "gt-data-1c: %v\n", err)
+				fmt.Fprintf(os.Stderr, "gf-data-1c: %v\n", err)
 				os.Exit(0)
 			}
-			fmt.Fprintf(os.Stderr, "gt-data-1c: расширение не выгружено: %v\n", err)
+			fmt.Fprintf(os.Stderr, "gf-data-1c: расширение не выгружено: %v\n", err)
 			os.Exit(1)
 		}
 		fmt.Printf("Расширение %s выгружено: %s\n", installer.ExtensionName, path)
@@ -72,7 +72,7 @@ func main() {
 			User: *dbUser, Password: *dbPassword, Platform: *platform,
 		})
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "gt-data-1c: расширение не установлено: %v\n", err)
+			fmt.Fprintf(os.Stderr, "gf-data-1c: расширение не установлено: %v\n", err)
 			os.Exit(1)
 		}
 		fmt.Printf("Расширение %s установлено в базу %s.\n", installer.ExtensionName, *install)
@@ -82,7 +82,7 @@ func main() {
 	}
 
 	if *showVersion {
-		fmt.Printf("gt-data-1c %s\nреестр баз: %s\nжурнал по умолчанию: %s\n",
+		fmt.Printf("gf-data-1c %s\nреестр баз: %s\nжурнал по умолчанию: %s\n",
 			server.Version, registryDefault(*registryPath), journal.DefaultPath())
 		return
 	}
@@ -94,7 +94,7 @@ func main() {
 		}
 		if err := journal.Open(path); err != nil {
 			// Журнал — удобство, а не условие работы: сказать и продолжить.
-			fmt.Fprintf(os.Stderr, "gt-data-1c: журнал не открыт (%v), работаю без него\n", err)
+			fmt.Fprintf(os.Stderr, "gf-data-1c: журнал не открыт (%v), работаю без него\n", err)
 		}
 		defer journal.Close()
 	}
@@ -105,7 +105,7 @@ func main() {
 	// открытыми (вписанные руками или от прежней версии), защищаются сразу, а не при
 	// ближайшем изменении реестра — которого может не случиться месяцами.
 	if _, err := registry.Load(*registryPath); err != nil {
-		fmt.Fprintf(os.Stderr, "gt-data-1c: реестр баз не прочитан: %v\n", err)
+		fmt.Fprintf(os.Stderr, "gf-data-1c: реестр баз не прочитан: %v\n", err)
 	}
 
 	if *httpAddr != "" {
@@ -115,7 +115,7 @@ func main() {
 		}
 		err := server.ServeHTTP(options, server.HTTPOptions{Addr: addr, Token: *httpToken})
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "gt-data-1c: сетевой режим остановлен: %v\n", err)
+			fmt.Fprintf(os.Stderr, "gf-data-1c: сетевой режим остановлен: %v\n", err)
 			os.Exit(1)
 		}
 		return
@@ -124,7 +124,7 @@ func main() {
 	srv := server.New(options)
 
 	if err := srv.Run(context.Background(), &mcp.StdioTransport{}); err != nil {
-		fmt.Fprintf(os.Stderr, "gt-data-1c: сервер остановлен: %v\n", err)
+		fmt.Fprintf(os.Stderr, "gf-data-1c: сервер остановлен: %v\n", err)
 		os.Exit(1)
 	}
 }

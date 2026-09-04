@@ -26,9 +26,9 @@ import (
 
 	"github.com/Azure/go-ntlmssp"
 
-	"github.com/greentech/gt-data-1c/internal/journal"
-	"github.com/greentech/gt-data-1c/internal/refusal"
-	"github.com/greentech/gt-data-1c/internal/registry"
+	"github.com/aleksandrgradoboev-svg/gf-data-1c/internal/journal"
+	"github.com/aleksandrgradoboev-svg/gf-data-1c/internal/refusal"
+	"github.com/aleksandrgradoboev-svg/gf-data-1c/internal/registry"
 )
 
 // Client — канал к одной базе.

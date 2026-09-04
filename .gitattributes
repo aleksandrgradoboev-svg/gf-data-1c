@@ -1,0 +1,25 @@
+# Единый перевод строки в репозитории: LF.
+# Иначе CRLF из Windows против LF в Linux-CI даёт ложные срабатывания
+# gofmt и шум в diff на пустом месте.
+* text=auto eol=lf
+
+*.go      text eol=lf
+*.mod     text eol=lf
+*.sum     text eol=lf
+*.md      text eol=lf
+*.yml     text eol=lf
+*.json    text eol=lf
+
+# Исходники расширения 1С. Конфигуратор выгружает XML и BSL в UTF-8,
+# и хранить их надо ровно так, как он их отдаёт.
+*.bsl     text eol=lf
+*.xml     text eol=lf
+
+# PowerShell на Windows — родной CRLF: скрипт сборки расширения
+# запускается только там.
+*.ps1     text eol=crlf
+
+# Двоичное — не трогать.
+*.cfe     binary
+*.db      binary
+*.exe     binary

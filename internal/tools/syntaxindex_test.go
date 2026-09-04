@@ -65,11 +65,11 @@ func TestSplitCamelRussian(t *testing.T) {
 
 func TestQuestionKind(t *testing.T) {
 	cases := map[string]string{
-		"ПОДОБНО":                           "query",
-		"ИТОГИ":                             "query",
+		"ПОДОБНО": "query",
+		"ИТОГИ":   "query",
 		"РегистрБухгалтерии.ОстаткиИОбороты": "table",
-		"СрезПоследних":                     "table",
-		"Упорядочивание результатов":        "any",
+		"СрезПоследних":                      "table",
+		"Упорядочивание результатов":         "any",
 	}
 	for q, want := range cases {
 		if got := questionKind(q); got != want {

@@ -30,7 +30,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	_ "modernc.org/sqlite"
 
-	"github.com/greentech/gt-data-1c/internal/refusal"
+	"github.com/aleksandrgradoboev-svg/gf-data-1c/internal/refusal"
 )
 
 // SyntaxInput — вход инструмента.
@@ -88,7 +88,7 @@ func kbCandidates(env, pkgRoot, workDir string) []string {
 func kbPath() (string, bool) {
 	var pkg, wd string
 	if exe, err := os.Executable(); err == nil {
-		pkg = filepath.Dir(filepath.Dir(filepath.Dir(exe))) // bin → gt-data-1c → корень пакета
+		pkg = filepath.Dir(filepath.Dir(filepath.Dir(exe))) // bin → gf-data-1c → корень пакета
 	}
 	if cur, err := os.Getwd(); err == nil {
 		wd = cur

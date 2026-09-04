@@ -30,7 +30,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/greentech/gt-data-1c/internal/refusal"
+	"github.com/aleksandrgradoboev-svg/gf-data-1c/internal/refusal"
 )
 
 // memberKind — раздел, в котором член лежит у вендора.
@@ -205,7 +205,6 @@ func buildMemberIndex(db *sql.DB) *memberIndex {
 	}
 	return ix
 }
-
 
 // firstNonEmpty — первое непустое из двух. Ключ дедупликации строится по ЛАТИНСКОМУ имени:
 // оно есть у обеих форм записи члена, русское — только у разобранных из заголовка.

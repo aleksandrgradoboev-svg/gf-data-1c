@@ -815,7 +815,7 @@ func searchHelp(db *sql.DB, query string) (*helpPage, []helpPage) {
 		// 3. заголовок. ORDER BY обязателен: без него LIMIT режет наугад — та же болезнь,
 		// что hits[0]. Короткий заголовок точнее по смыслу.
 		rows, err := db.Query(`SELECT title, object, path FROM pages
-		                        WHERE ` + queryScope + ` AND title LIKE ?
+		                        WHERE `+queryScope+` AND title LIKE ?
 		                        ORDER BY length(title) LIMIT 60`, "%"+v+"%")
 		if err == nil {
 			for rows.Next() {

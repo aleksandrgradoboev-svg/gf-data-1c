@@ -149,7 +149,7 @@ func Export(dst string, platform string) (string, error) {
 
 	// Промежуточная база нужна потому, что .cfe рождается только выгрузкой
 	// ИЗ базы: конфигуратор не умеет собирать расширение прямо из XML.
-	tmpIB, err := os.MkdirTemp("", "gt-data-1c-ib-")
+	tmpIB, err := os.MkdirTemp("", "gf-data-1c-ib-")
 	if err != nil {
 		return "", fmt.Errorf("временная база не создана: %w", err)
 	}
@@ -175,9 +175,33 @@ func Export(dst string, platform string) (string, error) {
 	return dst, nil
 }
 
+// ErrExtensionNotBuilt — расширение не встроено в бинарь.
+//
+// Каталог extension/ заполняется отдельным шагом сборки и в репозиторий не едет: это
+// артефакт. Из-за этого свежий клон собирается, но установщику работать нечем, и без
+// этой проверки беда вскрывалась бы отказом конфигуратора про «принадлежность основного
+// объекта конфигурации» — сообщением, которое отправляет искать причину не туда.
+var ErrExtensionNotBuilt = fmt.Errorf(
+	"расширение не встроено в этот бинарь: каталог internal/installer/extension пуст.\n" +
+		"Соберите расширение и пересоберите сервер:\n" +
+		"  powershell -File build/build-extension.ps1 -OutputDir internal/installer/extension\n" +
+		"  go build -o bin/gfdata.exe ./cmd/gfdata\n" +
+		"Бинарь со страницы релизов расширение уже несёт")
+
+// extensionBuilt — встроено ли расширение. Признак — Configuration.xml: главный файл
+// выгрузки, без него остальное бессмысленно.
+func extensionBuilt() bool {
+	_, err := extensionFS.ReadFile("extension/Configuration.xml")
+	return err == nil
+}
+
 // unpack разворачивает встроенные исходники во временный каталог.
 func unpack() (string, error) {
-	dir, err := os.MkdirTemp("", "gt-data-1c-ext-")
+	if !extensionBuilt() {
+		return "", ErrExtensionNotBuilt
+	}
+
+	dir, err := os.MkdirTemp("", "gf-data-1c-ext-")
 	if err != nil {
 		return "", fmt.Errorf("временный каталог не создан: %w", err)
 	}
