@@ -403,6 +403,118 @@ pub(super) fn render_value(value: &Value) -> String {
     }
 }
 
+// ── Журнал регистрации ────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct EventLogInput {
+    /// Имя базы 1С из реестра.
+    pub base: String,
+    /// Начало периода в формате ISO 8601, например 2026-03-01T00:00:00.
+    pub start_date: String,
+    /// Конец периода в формате ISO 8601.
+    pub end_date: String,
+    /// Уровень важности: Ошибка, Предупреждение, Информация, Примечание.
+    pub level: String,
+    /// Имя пользователя 1С для фильтрации.
+    pub user: String,
+    /// Максимум записей (по умолчанию 50, максимум 500).
+    pub limit: i64,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+struct EventLogRecord {
+    #[serde(rename = "дата")]
+    date: String,
+    #[serde(rename = "уровень")]
+    level: String,
+    #[serde(rename = "пользователь")]
+    user: String,
+    #[serde(rename = "событие")]
+    event: String,
+    #[serde(rename = "комментарий")]
+    comment: String,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+struct EventLogReply {
+    #[serde(rename = "записей")]
+    count: i64,
+    #[serde(rename = "предел")]
+    limit: i64,
+    #[serde(rename = "записи")]
+    records: Vec<EventLogRecord>,
+}
+
+/// Первая строка текста, обрезанная до разумной длины.
+///
+/// Комментарий записи журнала бывает в килобайт и с переводами строк: в перечне нужна
+/// опознавательная строка, а не всё содержимое. Длина считается в СИМВОЛАХ (в Go —
+/// в байтах): срез по середине кириллической буквы здесь паникует, а не портит вывод молча.
+fn first_line(s: &str) -> String {
+    let s = match s.find(['\r', '\n']) {
+        Some(i) => &s[..i],
+        None => s,
+    };
+    if s.chars().count() > 200 {
+        let head: String = s.chars().take(200).collect();
+        return format!("{head}…");
+    }
+    s.to_string()
+}
+
+impl Set {
+    /// Читает журнал регистрации базы.
+    pub fn event_log(&self, input: &EventLogInput) -> Result<String, Refusal> {
+        let client = self.channel_for(&input.base)?;
+
+        let limit = input.limit.to_string();
+        let mut query: Vec<(&str, &str)> = Vec::new();
+        for (key, value) in [
+            ("start", input.start_date.trim()),
+            ("end", input.end_date.trim()),
+            ("level", input.level.trim()),
+            ("user", input.user.trim()),
+        ] {
+            if !value.is_empty() {
+                query.push((key, value));
+            }
+        }
+        if input.limit > 0 {
+            query.push(("limit", &limit));
+        }
+
+        let reply: EventLogReply = client.ask("eventlog", &query)?;
+
+        let mut b = format!(
+            "Журнал регистрации базы {}: записей {} (предел {})\n\n",
+            client.base().name,
+            reply.count,
+            reply.limit
+        );
+        for rec in &reply.records {
+            b.push_str(&format!(
+                "{}  {:<14} {:<16} {}\n",
+                rec.date, rec.level, rec.user, rec.event
+            ));
+            if !rec.comment.trim().is_empty() {
+                b.push_str(&format!("    {}\n", first_line(&rec.comment)));
+            }
+        }
+        // Упор в предел — не «данных больше нет»: молчаливое усечение и есть та ложь,
+        // из-за которой пустая выдача читается как факт о базе.
+        if reply.count == reply.limit {
+            b.push_str(
+                "\nВыдача упёрлась в предел: записей может быть больше — сузьте период \
+                 или поднимите limit.",
+            );
+        }
+        Ok(b)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -549,5 +661,30 @@ mod tests {
     fn целое_число_печатается_без_дробной_части() {
         assert_eq!(render_value(&json!(42)), "42");
         assert_eq!(render_value(&json!(42.5)), "42.5");
+    }
+    #[test]
+    fn первая_строка_обрезается_по_символам() {
+        // Комментарий записи журнала бывает в килобайт и с переводами строк: в перечне
+        // нужна опознавательная строка. Обрезка по СИМВОЛАМ, а не по байтам: в Go срез
+        // по середине кириллической буквы портит вывод молча, здесь он паникует.
+        assert_eq!(first_line("одна строка"), "одна строка");
+        assert_eq!(first_line("первая\nвторая"), "первая");
+        assert_eq!(first_line("первая\r\nвторая"), "первая");
+        let длинный = "я".repeat(300);
+        let out = first_line(&длинный);
+        assert_eq!(out.chars().count(), 201, "200 символов и многоточие");
+        assert!(out.ends_with('…'));
+        assert!(
+            out.trim_end_matches('…').chars().all(|c| c == 'я'),
+            "буква разрезана пополам"
+        );
+    }
+
+    #[test]
+    fn база_обязательна_для_журнала() {
+        let err = make_set("журнал")
+            .event_log(&EventLogInput::default())
+            .unwrap_err();
+        assert_eq!(err.kind, Kind::BadRequest);
     }
 }

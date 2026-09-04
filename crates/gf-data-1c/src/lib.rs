@@ -10,6 +10,7 @@ pub mod channel;
 pub mod installer;
 pub mod journal;
 pub mod ntlm;
+pub mod proto;
 pub mod refusal;
 pub mod registry;
 pub mod secret;
