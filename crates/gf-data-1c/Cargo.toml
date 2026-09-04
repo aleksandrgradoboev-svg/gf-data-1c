@@ -28,6 +28,7 @@ reqwest.workspace = true
 ntlmclient.workspace = true
 rusqlite.workspace = true
 regex.workspace = true
+include_dir.workspace = true
 
 # DPAPI есть только в Windows; под другими платформами модуль secret собирается
 # заглушкой, которая честно говорит, что защиты нет.

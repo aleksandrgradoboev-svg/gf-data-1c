@@ -7,6 +7,7 @@
 //! с ним.
 
 pub mod channel;
+pub mod installer;
 pub mod journal;
 pub mod ntlm;
 pub mod refusal;
