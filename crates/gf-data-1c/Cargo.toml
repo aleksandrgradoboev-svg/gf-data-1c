@@ -24,6 +24,8 @@ serde.workspace = true
 serde_json.workspace = true
 base64.workspace = true
 chrono.workspace = true
+reqwest.workspace = true
+ntlmclient.workspace = true
 
 # DPAPI есть только в Windows; под другими платформами модуль secret собирается
 # заглушкой, которая честно говорит, что защиты нет.

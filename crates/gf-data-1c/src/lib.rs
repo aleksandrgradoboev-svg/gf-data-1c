@@ -6,7 +6,9 @@
 //! встроенный в приложение, не поднимает дочерний процесс и не теряет состояние вместе
 //! с ним.
 
+pub mod channel;
 pub mod journal;
+pub mod ntlm;
 pub mod refusal;
 pub mod registry;
 pub mod secret;
