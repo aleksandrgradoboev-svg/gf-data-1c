@@ -10,11 +10,14 @@ pub mod data;
 pub mod export;
 pub mod gate;
 pub mod lenient;
+pub mod members;
 pub mod meta;
 pub mod probe;
 pub mod queryhints;
 pub mod queryschema;
 pub mod slice;
+pub mod syntax;
+pub mod syntaxindex;
 
 use std::path::PathBuf;
 use std::time::Duration;
