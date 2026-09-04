@@ -450,3 +450,126 @@ mod tests {
         assert_eq!(s.chars().count(), 301, "300 знаков плюс многоточие");
     }
 }
+
+// ── Конверт ответа расширения ────────────────────────────────────────────────
+
+/// Конверт ответа расширения. Поле `ok` есть всегда, поэтому отказ базы не
+/// приходится опознавать по составу полей.
+#[derive(Debug, serde::Deserialize)]
+struct Envelope {
+    #[serde(default)]
+    ok: bool,
+    #[serde(default)]
+    error: String,
+    #[serde(default)]
+    detail: String,
+}
+
+impl Client {
+    /// Выполняет GET и разбирает ответ в `T`.
+    ///
+    /// Отказ базы (`ok: false`) превращается в отказ вида `BaseError`: он приходит
+    /// кодом 200 намеренно — HTTP-коды заняты под состояния канала, — но для
+    /// вызывающего это именно отказ, а не пустой результат.
+    pub fn ask<T: serde::de::DeserializeOwned>(
+        &self,
+        method: &str,
+        query: &[(&str, &str)],
+    ) -> Result<T, Refusal> {
+        let data = self.get(method, query)?;
+        unwrap(&data).map_err(|e| e.stamp(&self.base.name))
+    }
+
+    /// То же, но без разбора тела: нужен там, где важен лишь факт успеха.
+    pub fn ask_ok(&self, method: &str, query: &[(&str, &str)]) -> Result<(), Refusal> {
+        let data = self.get(method, query)?;
+        check_envelope(&data).map_err(|e| e.stamp(&self.base.name))
+    }
+
+    /// Выполняет POST с телом JSON и разбирает ответ в `T`.
+    pub fn tell<P: serde::Serialize, T: serde::de::DeserializeOwned>(
+        &self,
+        method: &str,
+        payload: &P,
+    ) -> Result<T, Refusal> {
+        let data = self.post_json(method, payload)?;
+        unwrap(&data).map_err(|e| e.stamp(&self.base.name))
+    }
+}
+
+/// Проверяет конверт, не разбирая полезную нагрузку.
+fn check_envelope(data: &[u8]) -> Result<(), Refusal> {
+    let env: Envelope = serde_json::from_slice(data).map_err(|e| {
+        Refusal::new(Kind::BaseError, "ответ базы не разобран", e.to_string())
+            .hint("расширение вернуло не JSON — возможно, версия расширения старше сервера")
+    })?;
+    if !env.ok {
+        let (what, detail) = if env.error.trim().is_empty() {
+            // Ответ без признака ok и без причины: молчаливый отказ хуже громкого,
+            // поэтому называем сам факт, а не печатаем пустую строку.
+            (
+                "база ответила без признака успеха".to_string(),
+                "в ответе нет ни ok:true, ни описания ошибки — вероятно, отвечает не наше \
+                 расширение"
+                    .to_string(),
+            )
+        } else {
+            (env.error, env.detail)
+        };
+        return Err(Refusal::new(Kind::BaseError, what, detail));
+    }
+    Ok(())
+}
+
+fn unwrap<T: serde::de::DeserializeOwned>(data: &[u8]) -> Result<T, Refusal> {
+    check_envelope(data)?;
+    serde_json::from_slice(data)
+        .map_err(|e| Refusal::new(Kind::BaseError, "ответ базы не разобран", e.to_string()))
+}
+
+#[cfg(test)]
+mod envelope_tests {
+    use super::*;
+
+    #[derive(serde::Deserialize)]
+    struct Проба {
+        #[serde(rename = "расширение")]
+        расширение: String,
+    }
+
+    #[test]
+    fn успешный_конверт_разбирается() {
+        let v: Проба = unwrap(r#"{"ok":true,"расширение":"0.1.0"}"#.as_bytes()).unwrap();
+        assert_eq!(v.расширение, "0.1.0");
+    }
+
+    #[test]
+    fn отказ_базы_приходит_кодом_200_и_остаётся_отказом() {
+        let err = check_envelope(
+            r#"{"ok":false,"error":"поле не найдено","detail":"Регистратор"}"#.as_bytes(),
+        )
+        .unwrap_err();
+        assert_eq!(err.kind, Kind::BaseError);
+        assert!(err.to_string().contains("поле не найдено"), "{err}");
+        assert!(err.to_string().contains("Регистратор"), "{err}");
+    }
+
+    #[test]
+    fn ответ_без_признака_успеха_называет_сам_факт() {
+        let err = check_envelope(r#"{"что-то":"чужое"}"#.as_bytes()).unwrap_err();
+        assert!(
+            err.to_string().contains("без признака успеха"),
+            "молчаливый отказ хуже громкого: {err}"
+        );
+        assert!(err.to_string().contains("не наше расширение"), "{err}");
+    }
+
+    #[test]
+    fn не_json_даёт_подсказку_про_версию_расширения() {
+        let err = check_envelope("<html>404</html>".as_bytes()).unwrap_err();
+        assert!(
+            err.to_string().contains("версия расширения старше"),
+            "{err}"
+        );
+    }
+}

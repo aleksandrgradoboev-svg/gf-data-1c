@@ -7,6 +7,7 @@
 
 pub mod bases;
 pub mod gate;
+pub mod probe;
 
 use std::path::PathBuf;
 use std::time::Duration;
