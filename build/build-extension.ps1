@@ -42,6 +42,11 @@
 param(
     [Parameter(Mandatory)] [string] $OutputDir,
     [string] $CompatibilityMode = 'Version8_3_18',
+    # Версия расширения. Пусто — берётся из Cargo.toml, и это правильный путь:
+    # probe сверяет версию расширения с версией сервера СТРОГО и при расхождении
+    # объявляет ответы базы недостоверными. Два числа в разных файлах разъезжаются
+    # молча, а вылезает это у пользователя, не у нас.
+    [string] $Version,
     [switch] $DefaultRole
 )
 
@@ -49,12 +54,20 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $skills = Join-Path $env:USERPROFILE '.claude\skills'
 
+if (-not $Version) {
+    $cargo = Join-Path $root 'Cargo.toml'
+    $строка = Select-String -Path $cargo -Pattern '^version\s*=\s*"([^"]+)"' | Select-Object -First 1
+    if (-not $строка) { throw "версия не найдена в $cargo — назовите её параметром -Version" }
+    $Version = $строка.Matches[0].Groups[1].Value
+    Write-Host "[0/6] Версия расширения из Cargo.toml: $Version"
+}
+
 if (Test-Path $OutputDir) { Remove-Item -Recurse -Force $OutputDir }
 
 Write-Host "[1/6] Каркас расширения (режим совместимости $CompatibilityMode)"
 & powershell.exe -NoProfile -File (Join-Path $skills 'cfe-init\scripts\cfe-init.ps1') `
     -Name 'GTData' -Synonym 'Доступ к данным' -NamePrefix 'GT_' `
-    -Purpose AddOn -Version '0.1.0' -Vendor 'Aleksandr Gradoboev' `
+    -Purpose AddOn -Version $Version -Vendor 'Aleksandr Gradoboev' `
     -CompatibilityMode $CompatibilityMode -OutputDir $OutputDir | Out-Null
 
 Write-Host "[2/6] Отвязка от языка расширяемой конфигурации"
