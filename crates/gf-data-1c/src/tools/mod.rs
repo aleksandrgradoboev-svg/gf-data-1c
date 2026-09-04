@@ -9,6 +9,7 @@ pub mod bases;
 pub mod gate;
 pub mod meta;
 pub mod probe;
+pub mod queryhints;
 
 use std::path::PathBuf;
 use std::time::Duration;
