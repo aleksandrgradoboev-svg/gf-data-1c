@@ -1,0 +1,21 @@
+# В образ едет исходный код, и только он.
+
+.git
+.github
+bin/
+dist/
+docs/
+reference/
+third-party/
+
+# Расширение и его сборка: в Linux-образе собрать его нечем, а установщик
+# в контейнере не нужен — установка это разовое действие на машине с платформой.
+build/
+extension/
+internal/installer/extension/*
+!internal/installer/extension/РАСШИРЕНИЕ-НЕ-СОБРАНО.txt
+
+*.exe
+*.cfe
+*.md
+!go.mod
