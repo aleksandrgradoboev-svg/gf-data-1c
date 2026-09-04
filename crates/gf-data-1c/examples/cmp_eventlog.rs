@@ -10,7 +10,7 @@ fn вывод(s: &Set, in_: EventLogInput) {
 }
 
 fn main() {
-    let s = Set::new("0.1.0");
+    let s = Set::new(gf_data_1c::server::VERSION);
     println!("=== последние 5 ===");
     вывод(
         &s,

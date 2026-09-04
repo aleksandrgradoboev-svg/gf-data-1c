@@ -95,7 +95,7 @@ fn печать(s: &Set, q: &str, members: bool, full: bool) {
 }
 
 fn main() {
-    let s = Set::new("0.1.0");
+    let s = Set::new(gf_data_1c::server::VERSION);
     for q in ВОПРОСЫ_СПРАВКИ {
         печать(&s, q, false, false);
     }

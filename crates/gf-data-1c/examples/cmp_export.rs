@@ -3,7 +3,7 @@ use gf_data_1c::tools::export::ExportInput;
 use gf_data_1c::tools::Set;
 
 fn main() {
-    let mut s = Set::new("0.1.0");
+    let mut s = Set::new(gf_data_1c::server::VERSION);
     s.allow_raw_query = true;
     let dir = std::env::temp_dir().join("gfdata-export-live");
     let _ = std::fs::create_dir_all(&dir);

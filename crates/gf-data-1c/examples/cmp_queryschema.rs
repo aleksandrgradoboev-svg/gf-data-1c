@@ -29,7 +29,7 @@ fn parse(s: &Set, query: &str) {
 }
 
 fn main() {
-    let s = Set::new("0.1.0");
+    let s = Set::new(gf_data_1c::server::VERSION);
 
     println!("=== build: простая выборка ===");
     build(

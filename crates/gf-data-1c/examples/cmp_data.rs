@@ -12,7 +12,7 @@ fn вывод(r: Result<String, Refusal>) {
 
 fn main() {
     // allow_raw_query: сверяем печать и отказы, а не гейт — он проверен отдельно.
-    let mut s = Set::new("0.1.0");
+    let mut s = Set::new(gf_data_1c::server::VERSION);
     s.allow_raw_query = true;
 
     println!("=== count ===");

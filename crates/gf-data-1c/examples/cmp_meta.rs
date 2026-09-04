@@ -10,7 +10,7 @@ fn печать(r: Result<String, gf_data_1c::refusal::Refusal>) {
 }
 
 fn main() {
-    let s = Set::new("0.1.0");
+    let s = Set::new(gf_data_1c::server::VERSION);
 
     println!("=== base_info ===");
     печать(s.base_info(&BaseInfoInput { base: "bu3".into() }));
