@@ -57,23 +57,23 @@ pub const QUERY_NAME: &str = "query";
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
-struct QueryReply {
+pub(super) struct QueryReply {
     #[serde(rename = "колонки")]
-    columns: Vec<String>,
+    pub(super) columns: Vec<String>,
     #[serde(rename = "строк")]
-    rows_shown: i64,
+    pub(super) rows_shown: i64,
     #[serde(rename = "всегоСтрок")]
-    rows_total: i64,
+    pub(super) rows_total: i64,
     #[serde(rename = "смещение")]
-    offset: i64,
+    pub(super) offset: i64,
     #[serde(rename = "следующееСмещение")]
-    next_offset: i64,
+    pub(super) next_offset: i64,
     #[serde(rename = "естьЕщё")]
-    has_more: bool,
+    pub(super) has_more: bool,
     #[serde(rename = "обрезано")]
-    truncated: bool,
+    pub(super) truncated: bool,
     #[serde(rename = "строки")]
-    rows: Vec<Map<String, Value>>,
+    pub(super) rows: Vec<Map<String, Value>>,
 }
 
 // ── Счёт записей ─────────────────────────────────────────────────────────────
@@ -335,7 +335,7 @@ impl Set {
 }
 
 /// Печатает результат запроса.
-fn render_table(base: &str, reply: &QueryReply) -> String {
+pub(super) fn render_table(base: &str, reply: &QueryReply) -> String {
     let mut out = format!("База {base}: строк {}", reply.rows_shown);
     if reply.offset > 0 {
         out.push_str(&format!(", начиная с {}", reply.offset));
@@ -376,7 +376,7 @@ fn render_table(base: &str, reply: &QueryReply) -> String {
 
 /// Печатает значение ячейки. Ссылка разворачивается в «представление (тип, идентификатор)»:
 /// одного представления мало, по нему нельзя отобрать.
-fn render_value(value: &Value) -> String {
+pub(super) fn render_value(value: &Value) -> String {
     match value {
         Value::Null => "—".to_string(),
         Value::String(s) => s.clone(),

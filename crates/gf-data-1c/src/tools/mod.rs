@@ -7,11 +7,13 @@
 
 pub mod bases;
 pub mod data;
+pub mod export;
 pub mod gate;
 pub mod lenient;
 pub mod meta;
 pub mod probe;
 pub mod queryhints;
+pub mod slice;
 
 use std::path::PathBuf;
 use std::time::Duration;
