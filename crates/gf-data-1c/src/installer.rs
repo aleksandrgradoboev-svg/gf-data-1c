@@ -17,7 +17,7 @@ use crate::refusal::{Kind, Refusal};
 /// Каталог заполняется отдельным шагом сборки и в репозиторий не едет: это артефакт.
 /// Как и `go:embed`, макрос требует, чтобы каталог существовал во время компиляции,
 /// поэтому в нём лежит файл-заглушка — без него свежий клон не собирался бы вовсе.
-static EXTENSION: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../internal/installer/extension");
+static EXTENSION: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/extension");
 
 /// Имя расширения в базе. По нему же оно обновляется и удаляется.
 pub const EXTENSION_NAME: &str = "GTData";
@@ -43,9 +43,9 @@ pub struct Options {
 /// этой проверки беда вскрывалась бы отказом конфигуратора про «принадлежность основного
 /// объекта конфигурации» — сообщением, которое отправляет искать причину не туда.
 pub const EXTENSION_NOT_BUILT: &str =
-    "расширение не встроено в этот бинарь: каталог internal/installer/extension пуст.\n\
+    "расширение не встроено в этот бинарь: каталог crates/gf-data-1c/extension пуст.\n\
      Соберите расширение и пересоберите сервер:\n\
-     \x20 powershell -File build/build-extension.ps1 -OutputDir internal/installer/extension\n\
+     \x20 powershell -File build/build-extension.ps1 -OutputDir crates/gf-data-1c/extension\n\
      \x20 cargo build --release\n\
      Бинарь со страницы релизов расширение уже несёт";
 

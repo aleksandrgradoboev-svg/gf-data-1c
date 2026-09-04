@@ -20,24 +20,22 @@
 
 # ── Сборка ───────────────────────────────────────────────────────────────
 #
-# Образ полный, а не -alpine: там musl, а нам он не нужен — cgo в проекте нет вовсе
-# (драйвер SQLite взят чистый на Go, modernc), поэтому бинарь и так статический.
-# Версия Go берётся из go.mod, чтобы образ не разошёлся с проектом молча.
-FROM golang:1.25-bookworm AS build
+# Образ полный, а не -alpine: там musl, а нам нужен обычный glibc-компилятор C —
+# rusqlite собирается с `bundled`, то есть компилирует сам SQLite из исходников.
+# Это сознательно: иначе бинарь зависел бы от системной библиотеки, а образ обязан
+# быть самодостаточным.
+FROM rust:1-bookworm AS build
 
 WORKDIR /build
 
-# Зависимости отдельным слоем: они меняются реже кода, и слой переиспользуется.
-COPY go.mod go.sum ./
-RUN --mount=type=cache,target=/go/pkg/mod go mod download
-
 COPY . .
 
-# CGO_ENABLED=0 явно: иначе на машине с gcc линковка может уехать в динамическую,
-# и бинарь не запустится в debian-slim без нужных библиотек. Отказ был бы при первом
-# запуске контейнера, а не при сборке, — то есть у того, кто образ уже забрал.
-RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /gfdata ./cmd/gfdata
+# --locked: сборка идёт ровно по Cargo.lock, без тихого подъёма версий. Образ,
+# собранный сегодня и через месяц, должен быть одним и тем же продуктом.
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/build/target \
+    cargo build --release --locked --bin gfdata \
+ && cp target/release/gfdata /gfdata
 
 # ── Запуск ───────────────────────────────────────────────────────────────
 FROM debian:bookworm-slim

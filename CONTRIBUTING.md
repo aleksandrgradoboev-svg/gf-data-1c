@@ -3,10 +3,10 @@
 ## Сборка и проверка
 
 ```bash
-go build ./...                     # сборка
-gofmt -l .                         # форматирование: вывод должен быть пуст
-go vet ./...
-GT_SKIP_LIVE=1 go test ./internal/...   # тесты без обращения к базам
+cargo fmt --all -- --check                      # форматирование
+cargo clippy --workspace --all-targets -- -D warnings
+cargo build --workspace --all-targets           # сборка
+GT_SKIP_LIVE=1 cargo test --workspace           # тесты без обращения к базам
 ```
 
 Эти четыре шага — ровно то, что делает CI на Windows и Linux. Прогоняйте их целиком
@@ -18,8 +18,8 @@ GT_SKIP_LIVE=1 go test ./internal/...   # тесты без обращения �
 в репозитории (`dist/GTData.cfe`) и правку сервера можно вести без него:
 
 ```powershell
-powershell -File build/build-extension.ps1 -OutputDir internal/installer/extension
-go build -o bin/gfdata.exe ./cmd/gfdata
+powershell -File build/build-extension.ps1 -OutputDir crates/gf-data-1c/extension
+cargo build --release
 ```
 
 Сервер, собранный без этого шага, работает полностью — не может только установить
@@ -32,9 +32,9 @@ go build -o bin/gfdata.exe ./cmd/gfdata
 падать, если база ответила не то.
 
 ```bash
-go test ./internal/...                    # всё, включая живые
-GT_SKIP_LIVE=1 go test ./internal/...     # без обращения к базам
-go test ./internal/server/ -run Приёмка   # только приёмка
+cargo test --workspace                    # всё, включая живые
+GT_SKIP_LIVE=1 cargo test --workspace     # без обращения к базам
+cargo run --example cmp_probe             # проба канала к зарегистрированным базам
 ```
 
 Стенд поднимается так: база 1С с установленным расширением (`gfdata.exe -install`),
@@ -78,7 +78,7 @@ go test ./internal/server/ -run Приёмка   # только приёмка
 
 ## Код
 
-- `gofmt` и `go vet` — до коммита; CI проверяет то же самое.
+- `cargo fmt` и `cargo clippy` — до коммита; CI проверяет то же самое.
 - Комментарии и документация — на русском: предметная область русскоязычная,
   и `Документ.РеализацияТоваровУслуг` в англоязычном комментарии выглядит хуже,
   чем кажется.

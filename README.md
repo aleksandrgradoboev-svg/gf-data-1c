@@ -80,7 +80,7 @@ bases action=add name=<ключ> url=http://<хост>/<база>/hs/gt-data use
 
 | Часть | Где | Что делает |
 |---|---|---|
-| Сервер | `cmd/gfdata`, `internal/` | говорит с агентом по MCP (stdio или HTTP), держит реестр баз, ходит в базы по HTTP |
+| Сервер | `crates/gf-data-1c` | говорит с агентом по MCP (stdio или HTTP), держит реестр баз, ходит в базы по HTTP |
 | Расширение 1С | `extension/module`, `build/*.json` | HTTP-сервис внутри базы: метаданные, запросы, итоги регистров, журнал |
 | Сборка расширения | `build/build-extension.ps1` | собирает исходники расширения под конкретную конфигурацию |
 
@@ -129,8 +129,8 @@ bases action=add name=<ключ> url=http://<хост>/<база>/hs/gt-data use
 ## Сборка
 
 ```powershell
-go build ./...                                    # сервер БЕЗ встроенного расширения
-go test ./internal/...                            # тесты (живые пропускаются без стенда)
+cargo build --release                             # сервер БЕЗ встроенного расширения
+cargo test --workspace                            # тесты (живые пропускаются без стенда)
 ```
 
 Так собранный сервер работает как MCP-сервер полностью, но установить расширение в базу
@@ -142,8 +142,8 @@ go test ./internal/...                            # тесты (живые пр�
 наш инструментарий сборки объектов 1С — у стороннего разработчика его нет:
 
 ```powershell
-powershell -File build/build-extension.ps1 -OutputDir internal/installer/extension
-go build -o bin/gfdata.exe ./cmd/gfdata
+powershell -File build/build-extension.ps1 -OutputDir crates/gf-data-1c/extension
+cargo build --release
 ```
 
 Правка самого расширения идёт в `extension/module/GT_Data.bsl`, `build/httpservice.json`
@@ -288,9 +288,9 @@ docker compose logs -f
 ## Проверки
 
 ```
-go test ./internal/...                      # всё: каркас, живые прогоны, приёмка
-go test ./internal/server/ -run Приёмка     # только приёмка
-GT_SKIP_LIVE=1 go test ./internal/...       # без обращения к стендам
+cargo test --workspace                      # всё: каркас, живые прогоны, приёмка
+GT_SKIP_LIVE=1 cargo test --workspace       # без обращения к стендам
+cargo run --example cmp_probe               # проба канала к зарегистрированным базам
 ```
 
 Живые тесты сами пропускаются, если стенд не отвечает: на машине без базы прогон обязан
