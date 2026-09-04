@@ -12,3 +12,4 @@ pub mod ntlm;
 pub mod refusal;
 pub mod registry;
 pub mod secret;
+pub mod tools;
