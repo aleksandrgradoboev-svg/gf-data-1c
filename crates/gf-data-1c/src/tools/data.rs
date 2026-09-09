@@ -10,7 +10,7 @@ use serde_json::{json, Map, Value};
 
 use crate::refusal::{Kind, Refusal};
 
-use super::lenient::StringList;
+use super::lenient::{ParamMap, StringList};
 use super::queryhints::{enrich_query_refusal, quiet_traps};
 use super::Set;
 
@@ -46,7 +46,7 @@ pub struct QueryInput {
     /// Текст запроса. Только ВЫБРАТЬ/SELECT. Параметры через `&ИмяПараметра`.
     pub query: String,
     /// Параметры запроса: ключ без амперсанда. Даты строкой ГГГГ-ММ-ДД.
-    pub parameters: BTreeMap<String, Value>,
+    pub parameters: ParamMap,
     /// Максимум строк результата (по умолчанию 100, максимум 1000).
     pub limit: i64,
     /// Пропустить столько строк — следующая страница.
@@ -86,7 +86,7 @@ pub struct CountInput {
     pub table: String,
     /// Условие отбора без слова ГДЕ.
     pub where_: String,
-    pub parameters: BTreeMap<String, Value>,
+    pub parameters: ParamMap,
 }
 
 pub const COUNT_NAME: &str = "count";
@@ -128,7 +128,7 @@ pub struct RegisterInput {
     /// неё должен наш отказ с подсказкой, где взять имена, а не сухое «missing properties».
     pub resources: StringList,
     pub where_: String,
-    pub parameters: BTreeMap<String, Value>,
+    pub parameters: ParamMap,
     pub limit: i64,
 }
 

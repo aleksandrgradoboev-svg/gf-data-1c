@@ -4,15 +4,13 @@
 //! `register`: имя виртуальной таблицы, порядок границ периода и подстановка измерений
 //! не сочиняются заново — их нельзя ошибиться.
 
-use std::collections::BTreeMap;
-
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 
 use crate::refusal::{Kind, Refusal};
 
 use super::data::QueryReply;
-use super::lenient::StringList;
+use super::lenient::{ParamMap, StringList};
 use super::Set;
 
 // ── Срез регистра сведений ───────────────────────────────────────────────────
@@ -29,7 +27,7 @@ pub struct SliceInput {
     pub period: String,
     /// Отбор по полям среза, без слова ГДЕ.
     pub where_: String,
-    pub parameters: BTreeMap<String, Value>,
+    pub parameters: ParamMap,
     pub limit: i64,
 }
 
@@ -60,7 +58,7 @@ pub struct AccountsInput {
     pub register: String,
     /// Показатели: СуммаОстатокДт, СуммаОборотДт и т.п.
     pub resources: StringList,
-    pub parameters: BTreeMap<String, Value>,
+    pub parameters: ParamMap,
     pub limit: i64,
 }
 

@@ -1,6 +1,5 @@
 //! Выгрузка результата запроса в файл: когда строк больше, чем помещается в ответ.
 
-use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::PathBuf;
 
@@ -10,6 +9,7 @@ use serde_json::{json, Map, Value};
 use crate::refusal::{Kind, Refusal};
 
 use super::data::QueryReply;
+use super::lenient::ParamMap;
 use super::Set;
 
 /// Размер порции при выгрузке. Совпадает с потолком инструментов: больше одного запроса
@@ -27,7 +27,7 @@ pub struct ExportInput {
     pub base: String,
     /// Текст запроса. Только ВЫБРАТЬ. Для устойчивой выгрузки добавьте УПОРЯДОЧИТЬ.
     pub query: String,
-    pub parameters: BTreeMap<String, Value>,
+    pub parameters: ParamMap,
     /// `csv` (умолчание) или `jsonl`.
     pub format: String,
     /// Куда положить файл. Пусто — каталог выгрузок в профиле пользователя.
