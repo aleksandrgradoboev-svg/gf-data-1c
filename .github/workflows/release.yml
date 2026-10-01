@@ -1,0 +1,73 @@
+name: Выпуск
+
+# После слияния в main: если тега vX.Y.Z для версии из Cargo.toml ещё нет —
+# поставить его и завести ЧЕРНОВИК релиза. Публикует человек: описание
+# выпуска авторское, а публикация в открытый репозиторий необратима.
+#
+# Бинарь здесь НЕ собирается и не прикладывается. Расширение 1С вшивается в
+# gfdata.exe отдельным шагом сборки и в git не едет, поэтому exe из чистого
+# клона вышел бы без расширения — с виду рабочим, по сути неполным. Оба файла
+# выпуска (gfdata.exe и GTData.cfe) собираются локально и прикладываются к
+# черновику руками; чек-лист — в его описании.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    name: тег и черновик
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Тег
+        id: tag
+        run: |
+          set -euo pipefail
+          git fetch --quiet --tags origin
+          ver=$(grep -m1 -E '^version = "' Cargo.toml | sed -E 's/^version = "([^"]+)".*/\1/')
+          tag="v$ver"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "ver=$ver" >> "$GITHUB_OUTPUT"
+          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            echo "Тег $tag уже есть — ставить нечего."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$tag" -m "$tag" "$GITHUB_SHA"
+          git push origin "refs/tags/$tag"
+          echo "Поставлен тег $tag на ${GITHUB_SHA::7}"
+
+      - name: Черновик релиза
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          VER: ${{ steps.tag.outputs.ver }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Релиз $TAG уже заведён."
+            exit 0
+          fi
+          cat > notes.md <<EOF
+          ⚠️ **Черновик, заведён автоматически.** Перед публикацией:
+
+          - [ ] собрать локально и приложить \`gfdata.exe\` (с вшитым расширением) и \`GTData.cfe\`;
+          - [ ] заменить этот текст описанием выпуска;
+          - [ ] после публикации скачать ассеты и сверить SHA-256.
+          EOF
+          gh release create "$TAG" --draft --verify-tag \
+            --title "gf-data-1c $VER" --notes-file notes.md
+          echo "Заведён черновик релиза $TAG"
